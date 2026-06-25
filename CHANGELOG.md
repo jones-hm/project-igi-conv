@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.11.0] - 2026-06-25
+
+### Added
+- **OLM Writer** — `.olm` lightmaps can now be written, not just read:
+  - `igi1conv olm from-png <in.png> -o <out.olm> [--template <ref.olm>]` — build an `.olm` from a PNG. Dimensions come from the PNG; `--template` copies the runtime header fields (uv scale, version, date, grid) from an existing `.olm` so a rebuilt file matches the original's metadata exactly. Verified by an `olm -> png -> olm -> png` round-trip that preserves the pixel payload byte-for-byte (R/B channel swap cancels out).
+  - New `WriteOlm()` / `BuildOlmFromRGBA()` API in `cmd_olm.h` for in-process use by the recalc path.
+- **`lightmap recalc` command** — re-light a placed object's baked `.olm` files after it has been rotated/moved, without a full radiosity re-bake:
+  - `igi1conv lightmap recalc --model <id> --qsc <objects.qsc> --task-id <id> --mef <file.mef> --rot-orig X,Y,Z --rot-new X,Y,Z --sun-dir X,Y,Z [--sun-color R,G,B] [--ambient R,G,B]`
+  - Each render block's lightmap is rescaled **per channel** by how much more/less its surface now faces the sun — `factor = L(N_new) / L(N_orig)` where `L(N) = ambient + sunColor·max(N·sunDir, 0)`. This preserves the original bake's shadow/ambient-occlusion detail while approximating the new orientation, instead of flattening it to pure direct light. Block normals are derived from triangle geometry (type-3 meshes store UV data in the per-vertex normal slot, so face normals are used). Factors are clamped (`<=4x`, denominator floored) so a previously-shadowed surface can't blow out to white.
+  - An identity rotation (`rot-orig == rot-new`) is a guaranteed no-op (every factor is exactly 1.0), covered by a regression test.
+  - Overwrites the `.olm` files in `lightmaps_unpacked/` in place; repack `lightmaps.res` separately (`res pack`) for the game to pick them up.
+
+### Tests
+- `tests/test_olm_writer.cpp` — OLM writer round-trip (pixel-identical through PNG), from-png with/without template, missing-output usage error, and the recalc identity-rotation no-op invariant. All spawn the built `igi1conv.exe` against the corpus and skip cleanly when `IGI_GAME_PATH` is unset.
+
+### Changed
+- **Version bumped to 1.11.0** (minor: OLM writer + lightmap recalc).
+
 ## [1.10.0] - 2026-06-24
 
 ### Added

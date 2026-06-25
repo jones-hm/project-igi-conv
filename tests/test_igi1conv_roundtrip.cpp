@@ -171,13 +171,13 @@ TEST_F(IGI1ConvTest, MefSidecarCompileRejectsVertexCountEdits) {
 TEST_F(IGI1ConvTest, VersionFlagReportsCurrentVersion) {
     std::string out;
     EXPECT_EQ(RunIGI1Conv("--version", &out), 0);
-    EXPECT_NE(out.find("1.10.0"), std::string::npos) << "got: " << out;
+    EXPECT_NE(out.find("1.11.0"), std::string::npos) << "got: " << out;
 }
 
 TEST_F(IGI1ConvTest, HelpReportsCurrentVersion) {
     std::string out;
     EXPECT_EQ(RunIGI1Conv("--help", &out), 0);
-    EXPECT_NE(out.find("v1.10.0"), std::string::npos) << "got: " << out;
+    EXPECT_NE(out.find("v1.11.0"), std::string::npos) << "got: " << out;
 }
 
 // ─── error handling ──────────────────────────────────────────────────────────
