@@ -85,6 +85,26 @@ TEST(OlmWriter, FromPngMissingOutputFails) {
     EXPECT_EQ(RunIGI1Conv("olm from-png " + Q(png)), 1);
 }
 
+// ─── res repack (name-preserving write-back) ────────────────────────────────
+
+// repack with an unpacked dir that contains every original entry (matched by
+// basename) and no edits must reproduce the source .res byte-for-byte: same
+// entry names, same bytes, same order. This is the invariant the editor's
+// lightmap write-back relies on (only the recalc-modified .olm bytes change;
+// every other entry and every entry NAME is preserved verbatim).
+TEST(ResRepack, IdentityRoundTripIsByteIdentical) {
+    IGI1CONV_NEED(res, "lightmaps\\.res$");
+    TempDir tmp;
+    std::string unpackDir = tmp / "unpack";
+    std::string repacked  = tmp / "repacked.res";
+
+    ASSERT_EQ(RunIGI1Conv("res unpack " + Q(res) + " " + Q(unpackDir)), 0);
+    ASSERT_EQ(RunIGI1Conv("res repack " + Q(res) + " " + Q(unpackDir) + " -o " + Q(repacked)), 0);
+    ASSERT_TRUE(NonEmptyFile(repacked));
+    EXPECT_EQ(GetFileSHA256(res), GetFileSHA256(repacked))
+        << "identity repack should reproduce the source .res byte-for-byte";
+}
+
 // ─── lightmap recalc ────────────────────────────────────────────────────────
 
 // Discover a level dir under the corpus that has BOTH a decompiled objects.qsc
