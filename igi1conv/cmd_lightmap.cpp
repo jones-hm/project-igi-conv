@@ -334,10 +334,17 @@ int do_lightmap_recalc(const RecalcArgs& args) {
             std::cerr << "lightmap: skip (parse failed): " << olmFiles[i] << " (" << olm.error << ")\n";
             continue;
         }
+        // OLM's on-disk channel order is swapped relative to a normal RGBA image:
+        // OlmPixel.r on disk is visual BLUE and OlmPixel.b is visual RED (see
+        // cmd_olm.cpp SwapChannels()/BuildOlmFromRGBA(), which swap R<->B when
+        // converting to/from PNG). `factor` is in visual R,G,B order (matches
+        // --sun-color/--ambient), so it must be applied with R<->B swapped too —
+        // otherwise the red sun factor lands on the blue channel and vice versa,
+        // visibly tinting the re-lit surface blue.
         for (auto& px : olm.pixels) {
-            px.r = static_cast<uint8_t>(std::min(255.0f, std::round(px.r * factor.x)));
+            px.r = static_cast<uint8_t>(std::min(255.0f, std::round(px.r * factor.z))); // disk r = visual blue → apply blue factor
             px.g = static_cast<uint8_t>(std::min(255.0f, std::round(px.g * factor.y)));
-            px.b = static_cast<uint8_t>(std::min(255.0f, std::round(px.b * factor.z)));
+            px.b = static_cast<uint8_t>(std::min(255.0f, std::round(px.b * factor.x))); // disk b = visual red → apply red factor
         }
         std::string werr;
         if (!WriteOlm(olmFiles[i], olm, werr)) {

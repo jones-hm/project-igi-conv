@@ -200,3 +200,104 @@ TEST(LightmapRecalc, IdentityRotationLeavesOlmUnchanged) {
         EXPECT_EQ(beforePng[i], ReadAll(png)) << "identity recalc changed pixels of " << olmPaths[i];
     }
 }
+
+namespace {
+// Raw IGI1 .olm layout (see Lightmap_docs.md): 88-byte header + 16-byte layer
+// descriptor + on-disk pixels at offset 104, 4 bytes each in DISK order
+// (disk byte 0 is visual BLUE, byte 2 is visual RED — see cmd_olm.cpp
+// BuildOlmFromRGBA/SwapChannels). Reads raw bytes directly so this test does
+// not depend on `olm to-png`'s own (correct) R/B swap to observe the bug.
+constexpr size_t kOlmPixelStart = 104;
+std::vector<uint8_t> ReadOlmAllBytes(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+} // namespace
+
+// A pure-red sun with zero ambient (--sun-color 1,0,0 --ambient 0,0,0) makes
+// L(N) = sunColor * max(N.sun, 0): the GREEN and BLUE channels of L are
+// IDENTICALLY ZERO for every normal, at both the original and new orientation,
+// so their factor is always 0/eps clamped to 0 - whichever on-disk byte the
+// code multiplies by "factor.y"/"factor.z" must drop to exactly 0. Per the
+// documented channel convention (disk.r=visual blue, disk.b=visual red), the
+// CORRECT mapping zeroes disk.r (scaled by the blue factor) and disk.g, while
+// disk.b (scaled by the red factor, generally nonzero) is free to keep a
+// value. The bug this regression test catches: swapping which factor hits
+// disk.r vs disk.b would instead zero disk.b and leave disk.r untouched.
+TEST(LightmapRecalc, ChannelMappingZeroesDiskRedGreenNotBlue) {
+    std::string qsc = FindLevelQscWithLightmaps();
+    if (qsc.empty()) GTEST_SKIP() << "no corpus level dir has both objects.qsc and lightmaps_unpacked/";
+
+    std::string mef = FindCorpusMefOfModelType(3);
+    if (mef.empty()) GTEST_SKIP() << "no type-3 (lightmap) MEF in corpus";
+    std::string modelId = fs::path(mef).stem().string();
+
+    std::string listOut;
+    if (RunIGI1Conv("lightmap list --model " + Q(modelId) + " --qsc " + Q(qsc), &listOut) != 0)
+        GTEST_SKIP() << "model " << modelId << " has no lightmap binding in this level";
+    int taskId = -1;
+    auto tpos = listOut.find("task ");
+    if (tpos == std::string::npos || std::sscanf(listOut.c_str() + tpos, "task %d", &taskId) != 1)
+        GTEST_SKIP() << "could not parse a task id for " << modelId;
+
+    std::string resolveOut;
+    ASSERT_EQ(RunIGI1Conv("lightmap resolve --model " + Q(modelId) + " --qsc " + Q(qsc) +
+                          " --task-id " + std::to_string(taskId), &resolveOut), 0);
+    std::vector<std::string> olmPaths;
+    {
+        std::istringstream iss(resolveOut);
+        std::string line;
+        bool inList = false;
+        while (std::getline(iss, line)) {
+            if (line.find(".olm file(s):") != std::string::npos) { inList = true; continue; }
+            if (!inList) continue;
+            size_t s = line.find_first_not_of(" \t");
+            if (s == std::string::npos) continue;
+            std::string p = line.substr(s);
+            if (!p.empty() && p.back() == '\r') p.pop_back();
+            if (fs::exists(p)) olmPaths.push_back(p);
+        }
+    }
+    ASSERT_FALSE(olmPaths.empty());
+
+    // Find a file + pixel index whose on-disk byte 0 (visual blue) is NONZERO
+    // before recalc — pixel 0 of an arbitrary file is frequently atlas padding
+    // (already 0,0,0,255), which would make the post-recalc assertion vacuously
+    // true under EITHER the correct or the buggy channel mapping.
+    std::string targetFile;
+    size_t targetPixel = 0;
+    for (const auto& p : olmPaths) {
+        auto bytes = ReadOlmAllBytes(p);
+        for (size_t off = kOlmPixelStart; off + 4 <= bytes.size(); off += 4) {
+            if (bytes[off] != 0) { // disk byte 0 = visual blue, nonzero before recalc
+                targetFile = p;
+                targetPixel = (off - kOlmPixelStart) / 4;
+                break;
+            }
+        }
+        if (!targetFile.empty()) break;
+    }
+    if (targetFile.empty())
+        GTEST_SKIP() << "every resolved .olm has disk-blue==0 everywhere (all-black/padding atlas) — cannot distinguish mapping direction";
+
+    // Use a 90-degree rotation so block normals differ between orig/new for at
+    // least some blocks, giving a non-degenerate red-channel factor.
+    int rc = RunIGI1Conv("lightmap recalc --model " + Q(modelId) + " --qsc " + Q(qsc) +
+                         " --task-id " + std::to_string(taskId) + " --mef " + Q(mef) +
+                         " --rot-orig 0,0,0 --rot-new 0,0,1.5708 --sun-dir 0.1,0.49,0.87"
+                         " --sun-color 1,0,0 --ambient 0,0,0");
+    ASSERT_EQ(rc, 0);
+
+    auto bytes = ReadOlmAllBytes(targetFile);
+    size_t off = kOlmPixelStart + targetPixel * 4;
+    ASSERT_LE(off + 4, bytes.size());
+    // disk byte 0 (visual blue) was nonzero before recalc and must become EXACTLY
+    // 0 now (scaled by the all-zero blue sun factor) under the correct mapping.
+    // Under the bug (factor.x applied to disk.r instead of factor.z), this byte
+    // would instead be scaled by the nonzero RED factor and very likely stay
+    // nonzero, failing this assertion.
+    EXPECT_EQ(bytes[off], 0)
+        << "disk byte 0 (visual blue) at " << targetFile << " pixel " << targetPixel
+        << " should be zeroed by the all-zero blue sun factor under the correct R/B mapping";
+    EXPECT_EQ(bytes[off + 1], 0) << "disk byte 1 (green) should be zeroed by the all-zero green sun factor";
+}

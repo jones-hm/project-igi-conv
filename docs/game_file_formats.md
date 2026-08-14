@@ -19,7 +19,7 @@
 10. [FNT -- Font Format](#10-fnt----font-format)
 11. [IFF -- Skeletal Animation](#11-iff----skeletal-animation)
 12. [BEF -- Animation Text Format](#12-bef----animation-text-format)
-13. [OLM -- Lightmap](#13-olm----lightmap)
+13. [OLM -- Object Lightmap](#13-olm -- lightmap)
 
 ---
 
@@ -29,24 +29,24 @@ ILFF ("Innerloop File Format") is the shared binary container used by MEF and RE
 
 ### 1.1 File Header (20 bytes)
 
-| Offset | Size | Type     | Description                               |
-|--------|------|----------|-------------------------------------------|
-| 0x00   | 4    | char[4]  | Magic: `"ILFF"` (ASCII, 0x494C4646)      |
-| 0x04   | 4    | uint32   | Total file size (must equal actual size)  |
-| 0x08   | 4    | uint32   | Alignment (always 4)                      |
-| 0x0C   | 4    | uint32   | Skip (always 0 in the outer header)       |
-| 0x10   | 4    | char[4]  | Format ID (e.g. `"HSEM"` for MEF, `"IRES"` for RES) |
+| Offset | Size | Type    | Description                                         |
+| ------ | ---- | ------- | --------------------------------------------------- |
+| 0x00   | 4    | char[4] | Magic: `"ILFF"` (ASCII, 0x494C4646)                 |
+| 0x04   | 4    | uint32  | Total file size (must equal actual size)            |
+| 0x08   | 4    | uint32  | Alignment (always 4)                                |
+| 0x0C   | 4    | uint32  | Skip (always 0 in the outer header)                 |
+| 0x10   | 4    | char[4] | Format ID (e.g. `"HSEM"` for MEF, `"IRES"` for RES) |
 
 ### 1.2 Chunk Header (16 bytes)
 
 Each chunk inside the ILFF container begins with a 16-byte header:
 
-| Offset | Size | Type     | Description                                         |
-|--------|------|----------|-----------------------------------------------------|
-| 0x00   | 4    | char[4]  | FourCC chunk identifier (e.g. `"XTRV"`, `"DNER"`)  |
-| 0x04   | 4    | uint32   | Data size (bytes following this header)             |
-| 0x08   | 4    | uint32   | Alignment                                           |
-| 0x0C   | 4    | uint32   | Skip (offset from chunk start to next chunk; 0 = last chunk) |
+| Offset | Size | Type    | Description                                                  |
+| ------ | ---- | ------- | ------------------------------------------------------------ |
+| 0x00   | 4    | char[4] | FourCC chunk identifier (e.g. `"XTRV"`, `"DNER"`)            |
+| 0x04   | 4    | uint32  | Data size (bytes following this header)                      |
+| 0x08   | 4    | uint32  | Alignment                                                    |
+| 0x0C   | 4    | uint32  | Skip (offset from chunk start to next chunk; 0 = last chunk) |
 
 **Chunk linking:** If `skip == 0`, the chunk is the last in the chain and data follows immediately. Otherwise, the next chunk header begins at `chunk_start + skip`. This linked-list approach allows the engine to skip unknown chunks efficiently.
 
@@ -76,32 +76,32 @@ constexpr float kNativeMefImportScale = 1.0f / 40.96f;
 
 A typical MEF file contains these chunks (order may vary):
 
-| FourCC | Name                | Description                                               |
-|--------|---------------------|-----------------------------------------------------------|
-| `HSEM` | Mesh Info           | Model metadata including model type                       |
-| `XTRV` | Vertices (render)   | Interleaved vertex data for rendering                     |
-| `DNER` | Render blocks       | Triangle indices + per-block metadata                     |
-| `ECAF` | Face indices        | Separate index buffer (used by Type 1 bone models)        |
-| `D3DR` | D3D Render info     | Face/mesh/vertex counts                                   |
-| `XTVC` | Collision vertices  | Collision mesh vertices (16 bytes each, IGI 1)            |
-| `ECFC` | Collision faces     | Collision mesh face indices (8 bytes each, IGI 1)         |
-| `TAMC` | Material config     | Per-face material properties (opacity, diffuse, portal)   |
-| `ATTA` | Attachments         | Sub-model attachment points with transform matrix (68 bytes each) |
-| `XTVM` | Magic vertices      | Special-purpose vertices for game events (16 bytes each)  |
-| `REIH` | Bone hierarchy      | Bone parent/child relationships and rest-pose pivots      |
-| `MANB` | Bone names          | Bone name strings (16 bytes each, null-padded)            |
-| `TROP` | Portal records      | Portal zone entries (20 bytes each)                       |
-| `XVTP` | Portal vertices     | Portal mesh vertex positions (12 bytes each)              |
-| `CFTP` | Portal faces        | Portal mesh triangle indices (12 bytes each)              |
-| `PMTL` | Portal materials    | Material IDs for portal zones (16 bytes each)             |
+| FourCC | Name               | Description                                                       |
+| ------ | ------------------ | ----------------------------------------------------------------- |
+| `HSEM` | Mesh Info          | Model metadata including model type                               |
+| `XTRV` | Vertices (render)  | Interleaved vertex data for rendering                             |
+| `DNER` | Render blocks      | Triangle indices + per-block metadata                             |
+| `ECAF` | Face indices       | Separate index buffer (used by Type 1 bone models)                |
+| `D3DR` | D3D Render info    | Face/mesh/vertex counts                                           |
+| `XTVC` | Collision vertices | Collision mesh vertices (16 bytes each, IGI 1)                    |
+| `ECFC` | Collision faces    | Collision mesh face indices (8 bytes each, IGI 1)                 |
+| `TAMC` | Material config    | Per-face material properties (opacity, diffuse, portal)           |
+| `ATTA` | Attachments        | Sub-model attachment points with transform matrix (68 bytes each) |
+| `XTVM` | Magic vertices     | Special-purpose vertices for game events (16 bytes each)          |
+| `REIH` | Bone hierarchy     | Bone parent/child relationships and rest-pose pivots              |
+| `MANB` | Bone names         | Bone name strings (16 bytes each, null-padded)                    |
+| `TROP` | Portal records     | Portal zone entries (20 bytes each)                               |
+| `XVTP` | Portal vertices    | Portal mesh vertex positions (12 bytes each)                      |
+| `CFTP` | Portal faces       | Portal mesh triangle indices (12 bytes each)                      |
+| `PMTL` | Portal materials   | Material IDs for portal zones (16 bytes each)                     |
 
 ### 2.2 HSEM Chunk -- Mesh Info
 
 The HSEM chunk contains model metadata. The model type field is critical for determining vertex layout.
 
-| Offset (in chunk data) | Size | Type   | Description           |
-|------------------------|------|--------|-----------------------|
-| 0x00                   | 32   | -      | Reserved / unknown    |
+| Offset (in chunk data) | Size | Type   | Description                 |
+| ---------------------- | ---- | ------ | --------------------------- |
+| 0x00                   | 32   | -      | Reserved / unknown          |
 | 0x20                   | 4    | uint32 | **Model type** (0, 1, or 3) |
 
 The chunk must be at least 36 bytes to contain the model type field.
@@ -112,16 +112,16 @@ The chunk must be at least 36 bytes to contain the model type field.
 
 Used for static props and buildings with no skeletal animation.
 
-| Byte Offset | Size | Type    | Field         |
-|-------------|------|---------|---------------|
-| 0x00        | 4    | float32 | Position X    |
-| 0x04        | 4    | float32 | Position Y    |
-| 0x08        | 4    | float32 | Position Z    |
-| 0x0C        | 4    | float32 | Normal X      |
-| 0x10        | 4    | float32 | Normal Y      |
-| 0x14        | 4    | float32 | Normal Z      |
-| 0x18        | 4    | float32 | UV U          |
-| 0x1C        | 4    | float32 | UV V          |
+| Byte Offset | Size | Type    | Field      |
+| ----------- | ---- | ------- | ---------- |
+| 0x00        | 4    | float32 | Position X |
+| 0x04        | 4    | float32 | Position Y |
+| 0x08        | 4    | float32 | Position Z |
+| 0x0C        | 4    | float32 | Normal X   |
+| 0x10        | 4    | float32 | Normal Y   |
+| 0x14        | 4    | float32 | Normal Z   |
+| 0x18        | 4    | float32 | UV U       |
+| 0x1C        | 4    | float32 | UV V       |
 
 **Total: 32 bytes per vertex.** UV offset within vertex: 24.
 
@@ -130,7 +130,7 @@ Used for static props and buildings with no skeletal animation.
 Used for animated characters and objects with skeletal rigs.
 
 | Byte Offset | Size | Type    | Field             |
-|-------------|------|---------|-------------------|
+| ----------- | ---- | ------- | ----------------- |
 | 0x00        | 4    | float32 | Position X        |
 | 0x04        | 4    | float32 | Position Y        |
 | 0x08        | 4    | float32 | Position Z        |
@@ -148,28 +148,28 @@ Used for animated characters and objects with skeletal rigs.
 
 Used for level geometry with lightmap UVs.
 
-| Byte Offset | Size | Type    | Field              |
-|-------------|------|---------|--------------------|
-| 0x00        | 4    | float32 | Position X         |
-| 0x04        | 4    | float32 | Position Y         |
-| 0x08        | 4    | float32 | Position Z         |
-| 0x0C        | 4    | float32 | Normal X           |
-| 0x10        | 4    | float32 | Normal Y           |
-| 0x14        | 4    | float32 | Normal Z           |
-| 0x18        | 4    | float32 | UV0 U (primary)    |
-| 0x1C        | 4    | float32 | UV0 V (primary)    |
-| 0x20        | 4    | float32 | UV1 U (lightmap)   |
-| 0x24        | 4    | float32 | UV1 V (lightmap)   |
+| Byte Offset | Size | Type    | Field            |
+| ----------- | ---- | ------- | ---------------- |
+| 0x00        | 4    | float32 | Position X       |
+| 0x04        | 4    | float32 | Position Y       |
+| 0x08        | 4    | float32 | Position Z       |
+| 0x0C        | 4    | float32 | Normal X         |
+| 0x10        | 4    | float32 | Normal Y         |
+| 0x14        | 4    | float32 | Normal Z         |
+| 0x18        | 4    | float32 | UV0 U (primary)  |
+| 0x1C        | 4    | float32 | UV0 V (primary)  |
+| 0x20        | 4    | float32 | UV1 U (lightmap) |
+| 0x24        | 4    | float32 | UV1 V (lightmap) |
 
 **Total: 40 bytes per vertex.** Primary UV offset within vertex: 24. Lightmap UV offset: 32.
 
 #### Summary Table
 
-| Model Type | Vertex Size | UV Offset | Description |
-|------------|-------------|-----------|-------------|
-| 0          | 32 bytes    | 24        | Rigid (pos + normal + uv) |
+| Model Type | Vertex Size | UV Offset | Description                                          |
+| ---------- | ----------- | --------- | ---------------------------------------------------- |
+| 0          | 32 bytes    | 24        | Rigid (pos + normal + uv)                            |
 | 1          | 40 bytes    | 24        | Bone/skeletal (pos + normal + uv0 + uv1/weight/bone) |
-| 3          | 40 bytes    | 24        | Lightmap (pos + normal + uv0 + uv1) |
+| 3          | 40 bytes    | 24        | Lightmap (pos + normal + uv0 + uv1)                  |
 
 The vertex count is determined by: `XTRV.chunk_data_size / vertex_size`.
 
@@ -179,37 +179,37 @@ The D3DR chunk stores face, mesh, and vertex counts. Its layout depends on the m
 
 #### Type 0 (Rigid) -- D3DR Layout
 
-| Offset | Size | Type   | Field       |
-|--------|------|--------|-------------|
-| 0x00   | 4    | uint32 | (unknown)   |
-| 0x04   | 4    | uint32 | numFaces    |
-| 0x08   | 4    | uint32 | numMeshes   |
-| 0x0C   | 4    | uint32 | numVerts    |
+| Offset | Size | Type   | Field     |
+| ------ | ---- | ------ | --------- |
+| 0x00   | 4    | uint32 | (unknown) |
+| 0x04   | 4    | uint32 | numFaces  |
+| 0x08   | 4    | uint32 | numMeshes |
+| 0x0C   | 4    | uint32 | numVerts  |
 
 Minimum chunk size: 16 bytes.
 
 #### Type 1 (Bone) -- D3DR Layout
 
-| Offset | Size | Type   | Field       |
-|--------|------|--------|-------------|
-| 0x00   | 4    | uint32 | (unknown)   |
-| 0x04   | 4    | uint32 | numFaces    |
-| 0x08   | 4    | uint32 | numMeshes   |
-| 0x0C   | 4    | uint32 | verts0      |
-| 0x10   | 4    | uint32 | verts1      |
-| 0x14   | 4    | uint32 | numVerts    |
+| Offset | Size | Type   | Field     |
+| ------ | ---- | ------ | --------- |
+| 0x00   | 4    | uint32 | (unknown) |
+| 0x04   | 4    | uint32 | numFaces  |
+| 0x08   | 4    | uint32 | numMeshes |
+| 0x0C   | 4    | uint32 | verts0    |
+| 0x10   | 4    | uint32 | verts1    |
+| 0x14   | 4    | uint32 | numVerts  |
 
 Minimum chunk size: 24 bytes.
 
 #### Type 3 (Lightmap) -- D3DR Layout
 
-| Offset | Size | Type   | Field       |
-|--------|------|--------|-------------|
-| 0x00   | 4    | uint32 | (unknown)   |
-| 0x04   | 4    | uint32 | (unknown)   |
-| 0x08   | 4    | uint32 | numFaces    |
-| 0x0C   | 4    | uint32 | numMeshes   |
-| 0x10   | 4    | uint32 | numVerts    |
+| Offset | Size | Type   | Field     |
+| ------ | ---- | ------ | --------- |
+| 0x00   | 4    | uint32 | (unknown) |
+| 0x04   | 4    | uint32 | (unknown) |
+| 0x08   | 4    | uint32 | numFaces  |
+| 0x0C   | 4    | uint32 | numMeshes |
+| 0x10   | 4    | uint32 | numVerts  |
 
 Minimum chunk size: 20 bytes.
 
@@ -223,14 +223,14 @@ Each render block has a variable-length header followed by packed uint16 index t
 
 **Block header (28 bytes for Type 0/1, 32 bytes for Type 3):**
 
-| Offset | Size | Type   | Field                    | Notes                    |
-|--------|------|--------|--------------------------|--------------------------|
-| 0x00   | 12   | -      | Reserved/unknown         |                          |
-| 0x0C   | 2    | int16  | indexCount               | Number of uint16 indices |
-| 0x0E   | 2    | int16  | nextoffs                 | -1 = last block          |
-| 0x10   | 2    | int16  | materialSlot (Type 3)    | Only present in Type 3   |
-| 0x12   | 2    | uint16 | vertsOffset              | Base vertex offset       |
-| 0x14   | 2    | uint16 | vertsCount               | Vertex count for block   |
+| Offset | Size | Type   | Field                 | Notes                    |
+| ------ | ---- | ------ | --------------------- | ------------------------ |
+| 0x00   | 12   | -      | Reserved/unknown      |                          |
+| 0x0C   | 2    | int16  | indexCount            | Number of uint16 indices |
+| 0x0E   | 2    | int16  | nextoffs              | -1 = last block          |
+| 0x10   | 2    | int16  | materialSlot (Type 3) | Only present in Type 3   |
+| 0x12   | 2    | uint16 | vertsOffset           | Base vertex offset       |
+| 0x14   | 2    | uint16 | vertsCount            | Vertex count for block   |
 
 For Type 0/1, `materialSlot` is the block's sequential index. For Type 0/1, `vertsOffset` is at byte 18 and `vertsCount` at byte 20 (0-indexed within the block header).
 
@@ -244,20 +244,20 @@ When a Type 1 model has both DNER and ECAF chunks, the DNER chunk contains fixed
 
 **DNER bone record (28-byte and 32-byte variants):**
 
-| Offset (28-byte) | Offset (32-byte) | Size | Type    | Field        | Description                                  |
-|------------------|------------------|------|---------|--------------|----------------------------------------------|
+| Offset (28-byte) | Offset (32-byte) | Size | Type    | Field        | Description                                 |
+| ---------------- | ---------------- | ---- | ------- | ------------ | ------------------------------------------- |
 | 0x00             | 0x00             | 12   | float32 | `px, py, pz` | Joint rest-pose local position translation  |
-| 0x0C             | 0x0C             | 2    | uint16  | `numFace`    | Index count (in bytes: `numFace * 2` index)   |
-| 0x0E             | 0x0E             | 2    | int16   | `skip`       | Offset index                                 |
-| -                | 0x10             | 2    | int16   | `td`         | Texture descriptor index                     |
-| 0x10             | 0x12             | 2    | uint16  | `offVerts`   | Base vertex offset                           |
-| 0x12             | 0x14             | 2    | uint16  | `numVerts`   | Vertex count in this bone submesh            |
-| 0x14             | 0x16             | 2    | uint16  | `rawOpacity` | Base material opacity index                  |
-| 0x16             | 0x18             | 1    | uint8   | `eflame`     | Emissive flame multiplier                    |
-| 0x17             | 0x19             | 1    | uint8   | `mshine`     | Material shininess factor                    |
-| 0x18             | 0x1A             | 1    | uint8   | `scolor`     | Specular color (or diffuse color index)      |
-| 0x19             | 0x1B             | 1    | uint8   | `opacitd`    | Opacity detail                               |
-| -                | 0x1C             | 4    | uint32  | `_0`         | Padding/alignment zero bytes                 |
+| 0x0C             | 0x0C             | 2    | uint16  | `numFace`    | Index count (in bytes: `numFace * 2` index) |
+| 0x0E             | 0x0E             | 2    | int16   | `skip`       | Offset index                                |
+| -                | 0x10             | 2    | int16   | `td`         | Texture descriptor index                    |
+| 0x10             | 0x12             | 2    | uint16  | `offVerts`   | Base vertex offset                          |
+| 0x12             | 0x14             | 2    | uint16  | `numVerts`   | Vertex count in this bone submesh           |
+| 0x14             | 0x16             | 2    | uint16  | `rawOpacity` | Base material opacity index                 |
+| 0x16             | 0x18             | 1    | uint8   | `eflame`     | Emissive flame multiplier                   |
+| 0x17             | 0x19             | 1    | uint8   | `mshine`     | Material shininess factor                   |
+| 0x18             | 0x1A             | 1    | uint8   | `scolor`     | Specular color (or diffuse color index)     |
+| 0x19             | 0x1B             | 1    | uint8   | `opacitd`    | Opacity detail                              |
+| -                | 0x1C             | 4    | uint32  | `_0`         | Padding/alignment zero bytes                |
 
 * **Record stride detection:** The record size is auto-detected: if `DNER.size % 32 == 0` use 32-byte records; else if `DNER.size % 28 == 0` use 28-byte records; otherwise fall back to packed DNER parsing.
 
@@ -266,6 +266,7 @@ When a Type 1 model has both DNER and ECAF chunks, the DNER chunk contains fixed
 #### 2.5.3 Skeletal Archetypes & The "Missing Skeleton" Problem
 
 A major limitation of the original binary `.mef` file format for skeletal models (`modelType == 1`) is that it **completely lacks skeletal tree hierarchy definitions**. The binary files only contain vertex blending weight tables (mapping which vertex is influenced by which raw bone index). They do not store:
+
 1. **Bone Names** (e.g. `"head"`, `"left hand"`, `"shoulders"`).
 2. **Parent-Child Linkages** (which joints are connected to which, which is necessary for forward kinematics and joint rotations).
 3. **Rest-Pose Bone Lengths/Offsets** (`px, py, pz`).
@@ -297,7 +298,7 @@ When no render geometry is available (no XTRV/DNER), the parser falls back to co
 #### XTVC -- Collision Vertices (16 bytes each)
 
 | Offset | Size | Type    | Field      |
-|--------|------|---------|------------|
+| ------ | ---- | ------- | ---------- |
 | 0x00   | 4    | float32 | Position X |
 | 0x04   | 4    | float32 | Position Y |
 | 0x08   | 4    | float32 | Position Z |
@@ -307,12 +308,12 @@ Vertex count: `XTVC.size / 16`. UVs are synthesized as `(x * 0.1, z * 0.1)`.
 
 #### ECFC -- Collision Faces (8 bytes each)
 
-| Offset | Size | Type   | Field       |
-|--------|------|--------|-------------|
-| 0x00   | 2    | uint16 | Index A     |
-| 0x02   | 2    | uint16 | Index B     |
-| 0x04   | 2    | uint16 | Index C     |
-| 0x06   | 2    | -      | Padding     |
+| Offset | Size | Type   | Field   |
+| ------ | ---- | ------ | ------- |
+| 0x00   | 2    | uint16 | Index A |
+| 0x02   | 2    | uint16 | Index B |
+| 0x04   | 2    | uint16 | Index C |
+| 0x06   | 2    | -      | Padding |
 
 Face count: `ECFC.size / 8`.
 
@@ -320,22 +321,22 @@ Face count: `ECFC.size / 8`.
 
 ATTA records place named sub-models onto a parent model with a local position and 3x3 rotation matrix. Sub-models can be static visual parts or MagicObjects with runtime behavior (see [Section 9](#9-magicobject-system)).
 
-| Offset | Size | Type     | Field     | Description                                        |
-|--------|------|----------|-----------|----------------------------------------------------|
-| 0x00   | 16   | char[16] | name      | Sub-model name (null-padded, e.g. `"600_02_1"`)    |
-| 0x10   | 4    | float32  | px        | Local position X (raw MEF units, NOT scaled)       |
-| 0x14   | 4    | float32  | py        | Local position Y                                   |
-| 0x18   | 4    | float32  | pz        | Local position Z                                   |
-| 0x1C   | 4    | float32  | r00       | Rotation matrix row 0, col 0                       |
-| 0x20   | 4    | float32  | r01       | Rotation matrix row 0, col 1                       |
-| 0x24   | 4    | float32  | r02       | Rotation matrix row 0, col 2                       |
-| 0x28   | 4    | float32  | r03       | Rotation matrix row 1, col 0                       |
-| 0x2C   | 4    | float32  | r04       | Rotation matrix row 1, col 1                       |
-| 0x30   | 4    | float32  | r05       | Rotation matrix row 1, col 2                       |
-| 0x34   | 4    | float32  | r06       | Rotation matrix row 2, col 0                       |
-| 0x38   | 4    | float32  | r07       | Rotation matrix row 2, col 1                       |
-| 0x3C   | 4    | float32  | r08       | Rotation matrix row 2, col 2                       |
-| 0x40   | 4    | int32    | boneId    | Parent bone index (-1 = not bone-attached)         |
+| Offset | Size | Type     | Field  | Description                                     |
+| ------ | ---- | -------- | ------ | ----------------------------------------------- |
+| 0x00   | 16   | char[16] | name   | Sub-model name (null-padded, e.g. `"600_02_1"`) |
+| 0x10   | 4    | float32  | px     | Local position X (raw MEF units, NOT scaled)    |
+| 0x14   | 4    | float32  | py     | Local position Y                                |
+| 0x18   | 4    | float32  | pz     | Local position Z                                |
+| 0x1C   | 4    | float32  | r00    | Rotation matrix row 0, col 0                    |
+| 0x20   | 4    | float32  | r01    | Rotation matrix row 0, col 1                    |
+| 0x24   | 4    | float32  | r02    | Rotation matrix row 0, col 2                    |
+| 0x28   | 4    | float32  | r03    | Rotation matrix row 1, col 0                    |
+| 0x2C   | 4    | float32  | r04    | Rotation matrix row 1, col 1                    |
+| 0x30   | 4    | float32  | r05    | Rotation matrix row 1, col 2                    |
+| 0x34   | 4    | float32  | r06    | Rotation matrix row 2, col 0                    |
+| 0x38   | 4    | float32  | r07    | Rotation matrix row 2, col 1                    |
+| 0x3C   | 4    | float32  | r08    | Rotation matrix row 2, col 2                    |
+| 0x40   | 4    | int32    | boneId | Parent bone index (-1 = not bone-attached)      |
 
 **Total: 68 bytes per record.** Count: `ATTA.size / 68`.
 
@@ -345,12 +346,12 @@ Positions are in raw MEF units (divide by 40.96 to get meters). The parent model
 
 XTVM records mark special-purpose positions within a model used by the game engine for events: gun fire origins, ladder interaction zones, particle emitters, etc. These are *not* rendered — they are invisible game logic hooks.
 
-| Offset | Size | Type    | Field       | Description                                                      |
-|--------|------|---------|-------------|------------------------------------------------------------------|
-| 0x00   | 4    | float32 | px          | Position X (raw MEF units, NOT scaled)                           |
-| 0x04   | 4    | float32 | py          | Position Y                                                       |
-| 0x08   | 4    | float32 | pz          | Position Z                                                       |
-| 0x0C   | 4    | int32   | magicType   | Magic vertex type ID (unconfirmed; see TASKTYPE constants below) |
+| Offset | Size | Type    | Field     | Description                                                      |
+| ------ | ---- | ------- | --------- | ---------------------------------------------------------------- |
+| 0x00   | 4    | float32 | px        | Position X (raw MEF units, NOT scaled)                           |
+| 0x04   | 4    | float32 | py        | Position Y                                                       |
+| 0x08   | 4    | float32 | pz        | Position Z                                                       |
+| 0x0C   | 4    | int32   | magicType | Magic vertex type ID (unconfirmed; see TASKTYPE constants below) |
 
 **Total: 16 bytes per vertex.** Count: `XTVM.size / 16`.
 
@@ -390,16 +391,16 @@ BreakScript();
 
 **Commands:**
 
-| Command             | Arguments                                                   |
-|---------------------|-------------------------------------------------------------|
-| `NewObject`         | `(name)`                                                    |
+| Command             | Arguments                                                              |
+| ------------------- | ---------------------------------------------------------------------- |
+| `NewObject`         | `(name)`                                                               |
 | `Material`          | `(index, name, diffR,G,B, ambR,G,B, specR,G,B, emR,G,B, hasCollision)` |
-| `MaterialShininess` | `(index, shininess)`                                        |
-| `Vertex`            | `(index, x, y, z)`                                         |
-| `Normal`            | `(index, nx, ny, nz)`                                      |
-| `Face`              | `(faceIdx, v0, v1, v2, n0, n1, n2, materialIdx)`           |
-| `UV`                | `(index, u, v, ...)`                                        |
-| `BreakScript`       | `()` -- separator, no action                                |
+| `MaterialShininess` | `(index, shininess)`                                                   |
+| `Vertex`            | `(index, x, y, z)`                                                     |
+| `Normal`            | `(index, nx, ny, nz)`                                                  |
+| `Face`              | `(faceIdx, v0, v1, v2, n0, n1, n2, materialIdx)`                       |
+| `UV`                | `(index, u, v, ...)`                                                   |
+| `BreakScript`       | `()` -- separator, no action                                           |
 
 Lines starting with `#` or `//` are comments. Empty lines are skipped.
 
@@ -415,19 +416,20 @@ TEX files store texture image data. All versions share a common 8-byte header pr
 ### 3.1 Common Header (8 bytes)
 
 | Offset | Size | Type   | Description                                            |
-|--------|------|--------|--------------------------------------------------------|
+| ------ | ---- | ------ | ------------------------------------------------------ |
 | 0x00   | 4    | uint32 | Magic: `"LOOP"` (0x504F4F4C, fourcc `'L','O','O','P'`) |
-| 0x04   | 4    | int32  | Version (2, 7, 9, or 11)                              |
+| 0x04   | 4    | int32  | Version (2, 7, 9, or 11)                               |
 
 ### 3.2 Color Modes
 
-| Mode ID | Name       | Bits/Pixel | Pixel Format                                                 |
-|---------|------------|------------|--------------------------------------------------------------|
-| 2       | ARGB1555   | 16         | `ABBBBBGGGGGRRRRR` -- 5 bits each for B, G, R (bits 0-14), alpha bit 15 ignored |
-| 3       | RGB24/32   | 24 or 32   | 24-bit: 3 bytes per pixel (swizzled); 32-bit: 4 bytes per pixel (swizzled with alpha) |
-| 67      | BGRA8888   | 32         | 4 bytes per pixel: B, G, R, A                               |
+| Mode ID | Name     | Bits/Pixel | Pixel Format                                                                          |
+| ------- | -------- | ---------- | ------------------------------------------------------------------------------------- |
+| 2       | ARGB1555 | 16         | `ABBBBBGGGGGRRRRR` -- 5 bits each for B, G, R (bits 0-14), alpha bit 15 ignored       |
+| 3       | RGB24/32 | 24 or 32   | 24-bit: 3 bytes per pixel (swizzled); 32-bit: 4 bytes per pixel (swizzled with alpha) |
+| 67      | BGRA8888 | 32         | 4 bytes per pixel: B, G, R, A                                                         |
 
 **Pixel decoding notes (all modes):**
+
 - Rows are stored top-to-bottom; the loader flips vertically for OpenGL (bottom-left origin).
 - Mode 2: Each 16-bit pixel is decoded as `B = bits[4:0], G = bits[9:5], R = bits[14:10]`, each scaled from 5-bit to 8-bit range (`value * 255.0 / 31.0`). Alpha is forced to 255.
 - Mode 3: If `line_width / image_width == 4`, treat as 32-bit (BGRA swizzled). Otherwise treat as 24-bit (BGR swizzled to RGB). The output swizzle is `dst[R,G,B,A] = src[channel2, channel0, channel1, alpha]`.
@@ -437,16 +439,16 @@ TEX files store texture image data. All versions share a common 8-byte header pr
 
 **Header structure: `tex_head_v2_s` (20 bytes)**
 
-| Offset | Size | Type   | Field             |
-|--------|------|--------|-------------------|
-| 0x00   | 4    | uint32 | ident (`"LOOP"`)  |
-| 0x04   | 4    | int32  | version (2)       |
-| 0x08   | 4    | int32  | image_mode        |
-| 0x0C   | 4    | int32  | unk0              |
-| 0x10   | 2    | int16  | image_line_width  |
-| 0x12   | 2    | int16  | image_width       |
-| 0x14   | 2    | int16  | image_height      |
-| 0x16   | 2    | int16  | bytes_per_pixel   |
+| Offset | Size | Type   | Field            |
+| ------ | ---- | ------ | ---------------- |
+| 0x00   | 4    | uint32 | ident (`"LOOP"`) |
+| 0x04   | 4    | int32  | version (2)      |
+| 0x08   | 4    | int32  | image_mode       |
+| 0x0C   | 4    | int32  | unk0             |
+| 0x10   | 2    | int16  | image_line_width |
+| 0x12   | 2    | int16  | image_width      |
+| 0x14   | 2    | int16  | image_height     |
+| 0x16   | 2    | int16  | bytes_per_pixel  |
 
 **Pixel data:** Immediately follows the header at offset 0x18.
 
@@ -458,32 +460,32 @@ TEX files store texture image data. All versions share a common 8-byte header pr
 
 **Header structure: `tex_head_v7_s` (52 bytes)**
 
-| Offset | Size | Type   | Field             |
-|--------|------|--------|-------------------|
-| 0x00   | 4    | uint32 | ident (`"LOOP"`)  |
-| 0x04   | 4    | int32  | version (7)       |
-| 0x08   | 4    | int32  | unk0              |
-| 0x0C   | 4    | int32  | unk1              |
-| 0x10   | 4    | int32  | unk2              |
-| 0x14   | 4    | int32  | unk3              |
-| 0x18   | 4    | int32  | unk4              |
-| 0x1C   | 4    | int32  | footer_offset     |
-| 0x20   | 4    | int32  | layer_count       |
-| 0x24   | 4    | int32  | unk5              |
-| 0x28   | 4    | int32  | image_width       |
-| 0x2C   | 4    | int32  | image_height      |
-| 0x30   | 4    | int32  | image_mode        |
+| Offset | Size | Type   | Field            |
+| ------ | ---- | ------ | ---------------- |
+| 0x00   | 4    | uint32 | ident (`"LOOP"`) |
+| 0x04   | 4    | int32  | version (7)      |
+| 0x08   | 4    | int32  | unk0             |
+| 0x0C   | 4    | int32  | unk1             |
+| 0x10   | 4    | int32  | unk2             |
+| 0x14   | 4    | int32  | unk3             |
+| 0x18   | 4    | int32  | unk4             |
+| 0x1C   | 4    | int32  | footer_offset    |
+| 0x20   | 4    | int32  | layer_count      |
+| 0x24   | 4    | int32  | unk5             |
+| 0x28   | 4    | int32  | image_width      |
+| 0x2C   | 4    | int32  | image_height     |
+| 0x30   | 4    | int32  | image_mode       |
 
 **Layer descriptors** follow at offset 0x34 (immediately after header). Each layer is `tex_layer_v7_s` (40 bytes):
 
-| Offset | Size | Type   | Field             |
-|--------|------|--------|-------------------|
-| 0x00   | 4    | int32  | image_offset      |
-| 0x04   | 4    | int32  | image_line_width  |
-| 0x08   | 2    | int16  | image_width       |
-| 0x0A   | 2    | int16  | unk0              |
-| 0x0C   | 2    | int16  | image_height      |
-| 0x0E   | 26   | -      | reserved          |
+| Offset | Size | Type  | Field            |
+| ------ | ---- | ----- | ---------------- |
+| 0x00   | 4    | int32 | image_offset     |
+| 0x04   | 4    | int32 | image_line_width |
+| 0x08   | 2    | int16 | image_width      |
+| 0x0A   | 2    | int16 | unk0             |
+| 0x0C   | 2    | int16 | image_height     |
+| 0x0E   | 26   | -     | reserved         |
 
 All layers share the same `image_mode` from the file header. Pixel data for each layer starts at `file_start + image_offset`.
 
@@ -495,30 +497,30 @@ Identical layout to v7 header (same offsets and fields).
 
 **Layer descriptors** follow at offset 0x34. Each layer is `tex_layer_s` (32 bytes):
 
-| Offset | Size | Type   | Field             |
-|--------|------|--------|-------------------|
-| 0x00   | 4    | int32  | image_offset      |
-| 0x04   | 4    | int32  | image_mode        |
-| 0x08   | 2    | int16  | image_line_width  |
-| 0x0A   | 2    | int16  | image_width       |
-| 0x0C   | 2    | int16  | image_height      |
-| 0x0E   | 2    | int16  | unk0              |
-| 0x10   | 16   | -      | reserved          |
+| Offset | Size | Type  | Field            |
+| ------ | ---- | ----- | ---------------- |
+| 0x00   | 4    | int32 | image_offset     |
+| 0x04   | 4    | int32 | image_mode       |
+| 0x08   | 2    | int16 | image_line_width |
+| 0x0A   | 2    | int16 | image_width      |
+| 0x0C   | 2    | int16 | image_height     |
+| 0x0E   | 2    | int16 | unk0             |
+| 0x10   | 16   | -     | reserved         |
 
 **Key difference from v7:** Each layer has its own `image_mode` field (at layer offset 0x04), rather than inheriting from the file header.
 
 **Footer:** A validation footer exists at `file_start + footer_offset`:
 
-| Offset | Size | Type   | Field             |
-|--------|------|--------|-------------------|
-| 0x00   | 4    | uint32 | ident (`"LOOP"`)  |
-| 0x04   | 4    | int32  | version           |
-| 0x08   | 2    | int16  | unk0              |
-| 0x0A   | 2    | int16  | unk1              |
-| 0x0C   | 2    | int16  | unk2              |
-| 0x0E   | 2    | int16  | unk3              |
-| 0x10   | 4    | int32  | count_x           |
-| 0x14   | 4    | int32  | count_y           |
+| Offset | Size | Type   | Field            |
+| ------ | ---- | ------ | ---------------- |
+| 0x00   | 4    | uint32 | ident (`"LOOP"`) |
+| 0x04   | 4    | int32  | version          |
+| 0x08   | 2    | int16  | unk0             |
+| 0x0A   | 2    | int16  | unk1             |
+| 0x0C   | 2    | int16  | unk2             |
+| 0x0E   | 2    | int16  | unk3             |
+| 0x10   | 4    | int32  | count_x          |
+| 0x14   | 4    | int32  | count_y          |
 
 The footer `ident` must match `TEX_IDENT` (`"LOOP"`) or the file is rejected.
 
@@ -526,19 +528,19 @@ The footer `ident` must match `TEX_IDENT` (`"LOOP"`) or the file is rejected.
 
 **Header structure: `tex_head_v11_s` (32 bytes)**
 
-| Offset | Size | Type   | Field              |
-|--------|------|--------|--------------------|
-| 0x00   | 4    | uint32 | ident (`"LOOP"`)   |
-| 0x04   | 4    | int32  | version (11)       |
-| 0x08   | 4    | int32  | image_mode         |
-| 0x0C   | 4    | int32  | unk0               |
-| 0x10   | 4    | int32  | unk1               |
-| 0x14   | 2    | int16  | unk2               |
-| 0x16   | 2    | int16  | image_width        |
-| 0x18   | 2    | int16  | image_height       |
-| 0x1A   | 2    | int16  | unk3               |
-| 0x1C   | 2    | int16  | unk4               |
-| 0x1E   | 2    | int16  | bytes_per_pixel    |
+| Offset | Size | Type   | Field            |
+| ------ | ---- | ------ | ---------------- |
+| 0x00   | 4    | uint32 | ident (`"LOOP"`) |
+| 0x04   | 4    | int32  | version (11)     |
+| 0x08   | 4    | int32  | image_mode       |
+| 0x0C   | 4    | int32  | unk0             |
+| 0x10   | 4    | int32  | unk1             |
+| 0x14   | 2    | int16  | unk2             |
+| 0x16   | 2    | int16  | image_width      |
+| 0x18   | 2    | int16  | image_height     |
+| 0x1A   | 2    | int16  | unk3             |
+| 0x1C   | 2    | int16  | unk4             |
+| 0x1E   | 2    | int16  | bytes_per_pixel  |
 
 **Pixel data:** Starts at offset 0x20 (immediately after header). Only the first mip level is loaded.
 
@@ -556,23 +558,23 @@ QVM is a compiled bytecode format for IGI's scripting virtual machine (version "
 
 ### 4.1 Header (60 bytes)
 
-| Offset | Size | Type     | Field         | Description                            |
-|--------|------|----------|---------------|----------------------------------------|
-| 0x00   | 4    | char[4]  | signature     | `"LOOP"` (0x4C4F4F50)                 |
-| 0x04   | 4    | uint32   | ver_major     | Must be 8                              |
-| 0x08   | 4    | uint32   | ver_minor     | Must be 5                              |
-| 0x0C   | 4    | uint32   | of_itable     | Offset to identifier table             |
-| 0x10   | 4    | uint32   | of_ivalue     | Offset to identifier strings           |
-| 0x14   | 4    | uint32   | sz_itable     | Size of identifier table               |
-| 0x18   | 4    | uint32   | sz_ivalue     | Size of identifier string pool         |
-| 0x1C   | 4    | uint32   | of_stable     | Offset to string table                 |
-| 0x20   | 4    | uint32   | of_svalue     | Offset to string value pool            |
-| 0x24   | 4    | uint32   | sz_stable     | Size of string table                   |
-| 0x28   | 4    | uint32   | sz_svalue     | Size of string value pool              |
-| 0x2C   | 4    | uint32   | of_ctable     | Offset to code (bytecode) section      |
-| 0x30   | 4    | uint32   | sz_ctable     | Size of code section                   |
-| 0x34   | 4    | uint32   | unknown_1     | Unknown                                |
-| 0x38   | 4    | uint32   | unknown_2     | Unknown                                |
+| Offset | Size | Type    | Field     | Description                       |
+| ------ | ---- | ------- | --------- | --------------------------------- |
+| 0x00   | 4    | char[4] | signature | `"LOOP"` (0x4C4F4F50)             |
+| 0x04   | 4    | uint32  | ver_major | Must be 8                         |
+| 0x08   | 4    | uint32  | ver_minor | Must be 5                         |
+| 0x0C   | 4    | uint32  | of_itable | Offset to identifier table        |
+| 0x10   | 4    | uint32  | of_ivalue | Offset to identifier strings      |
+| 0x14   | 4    | uint32  | sz_itable | Size of identifier table          |
+| 0x18   | 4    | uint32  | sz_ivalue | Size of identifier string pool    |
+| 0x1C   | 4    | uint32  | of_stable | Offset to string table            |
+| 0x20   | 4    | uint32  | of_svalue | Offset to string value pool       |
+| 0x24   | 4    | uint32  | sz_stable | Size of string table              |
+| 0x28   | 4    | uint32  | sz_svalue | Size of string value pool         |
+| 0x2C   | 4    | uint32  | of_ctable | Offset to code (bytecode) section |
+| 0x30   | 4    | uint32  | sz_ctable | Size of code section              |
+| 0x34   | 4    | uint32  | unknown_1 | Unknown                           |
+| 0x38   | 4    | uint32  | unknown_2 | Unknown                           |
 
 ### 4.2 String Pools
 
@@ -582,57 +584,57 @@ The identifier pool (`of_ivalue`, `sz_ivalue`) and string pool (`of_svalue`, `sz
 
 All opcodes are encoded as a single byte. The operand (if any) follows immediately in little-endian format.
 
-| Value | Name     | Operand Size | Description                           |
-|-------|----------|--------------|---------------------------------------|
-| 0x00  | BRK      | 0            | Break / debug trap                    |
-| 0x01  | NOP      | 0            | No operation                          |
-| 0x02  | PUSH     | 4 (uint32)   | Push 32-bit integer                   |
-| 0x03  | PUSHB    | 1 (uint8)    | Push byte as integer                  |
-| 0x04  | PUSHW    | 2 (uint16)   | Push 16-bit word as integer           |
-| 0x05  | PUSHF    | 4 (float32)  | Push 32-bit float                     |
-| 0x06  | PUSHA    | 0            | Push address                          |
-| 0x07  | PUSHS    | 0            | Push string ref                       |
-| 0x08  | PUSHSI   | 4 (uint32)   | Push string identifier (32-bit index) |
-| 0x09  | PUSHSIB  | 1 (uint8)    | Push string identifier (8-bit index)  |
-| 0x0A  | PUSHSIW  | 2 (uint16)   | Push string identifier (16-bit index) |
-| 0x0B  | PUSHI    | 0            | Push immediate                        |
-| 0x0C  | PUSHII   | 4 (uint32)   | Push indirect integer (32-bit)        |
-| 0x0D  | PUSHIIB  | 1 (uint8)    | Push indirect integer (8-bit)         |
-| 0x0E  | PUSHIIW  | 2 (uint16)   | Push indirect integer (16-bit)        |
-| 0x0F  | PUSH0    | 0            | Push constant 0                       |
-| 0x10  | PUSH1    | 0            | Push constant 1                       |
-| 0x11  | PUSHM    | 0            | Push memory ref                       |
-| 0x12  | POP      | 0            | Pop top of stack                      |
-| 0x13  | RET      | 0            | Return from subroutine                |
-| 0x14  | BRA      | 4 (int32)    | Branch always (relative offset)       |
-| 0x15  | BF       | 4 (int32)    | Branch if false                       |
-| 0x16  | BT       | 4 (int32)    | Branch if true                        |
-| 0x17  | JSR      | 0            | Jump to subroutine                    |
-| 0x18  | CALL     | special      | Native function call (see below)      |
-| 0x19  | ADD      | 0            | Integer addition                      |
-| 0x1A  | SUB      | 0            | Integer subtraction                   |
-| 0x1B  | MUL      | 0            | Integer multiplication                |
-| 0x1C  | DIV      | 0            | Integer division                      |
-| 0x1D  | SHL      | 0            | Shift left                            |
-| 0x1E  | SHR      | 0            | Shift right                           |
-| 0x1F  | AND      | 0            | Bitwise AND                           |
-| 0x20  | OR       | 0            | Bitwise OR                            |
-| 0x21  | XOR      | 0            | Bitwise XOR                           |
-| 0x22  | LAND     | 0            | Logical AND                           |
-| 0x23  | LOR      | 0            | Logical OR                            |
-| 0x24  | EQ       | 0            | Equal comparison                      |
-| 0x25  | NE       | 0            | Not equal comparison                  |
-| 0x26  | LT       | 0            | Less than                             |
-| 0x27  | LE       | 0            | Less than or equal                    |
-| 0x28  | GT       | 0            | Greater than                          |
-| 0x29  | GE       | 0            | Greater than or equal                 |
-| 0x2A  | ASSIGN   | 0            | Assignment                            |
-| 0x2B  | PLUS     | 0            | Unary plus                            |
-| 0x2C  | MINUS    | 0            | Unary minus (negate)                  |
-| 0x2D  | INV      | 0            | Bitwise invert                        |
-| 0x2E  | NOT      | 0            | Logical NOT                           |
-| 0x2F  | BLK      | 0            | Block marker                          |
-| 0x30  | ILLEGAL  | 0            | Illegal / invalid opcode              |
+| Value | Name    | Operand Size | Description                           |
+| ----- | ------- | ------------ | ------------------------------------- |
+| 0x00  | BRK     | 0            | Break / debug trap                    |
+| 0x01  | NOP     | 0            | No operation                          |
+| 0x02  | PUSH    | 4 (uint32)   | Push 32-bit integer                   |
+| 0x03  | PUSHB   | 1 (uint8)    | Push byte as integer                  |
+| 0x04  | PUSHW   | 2 (uint16)   | Push 16-bit word as integer           |
+| 0x05  | PUSHF   | 4 (float32)  | Push 32-bit float                     |
+| 0x06  | PUSHA   | 0            | Push address                          |
+| 0x07  | PUSHS   | 0            | Push string ref                       |
+| 0x08  | PUSHSI  | 4 (uint32)   | Push string identifier (32-bit index) |
+| 0x09  | PUSHSIB | 1 (uint8)    | Push string identifier (8-bit index)  |
+| 0x0A  | PUSHSIW | 2 (uint16)   | Push string identifier (16-bit index) |
+| 0x0B  | PUSHI   | 0            | Push immediate                        |
+| 0x0C  | PUSHII  | 4 (uint32)   | Push indirect integer (32-bit)        |
+| 0x0D  | PUSHIIB | 1 (uint8)    | Push indirect integer (8-bit)         |
+| 0x0E  | PUSHIIW | 2 (uint16)   | Push indirect integer (16-bit)        |
+| 0x0F  | PUSH0   | 0            | Push constant 0                       |
+| 0x10  | PUSH1   | 0            | Push constant 1                       |
+| 0x11  | PUSHM   | 0            | Push memory ref                       |
+| 0x12  | POP     | 0            | Pop top of stack                      |
+| 0x13  | RET     | 0            | Return from subroutine                |
+| 0x14  | BRA     | 4 (int32)    | Branch always (relative offset)       |
+| 0x15  | BF      | 4 (int32)    | Branch if false                       |
+| 0x16  | BT      | 4 (int32)    | Branch if true                        |
+| 0x17  | JSR     | 0            | Jump to subroutine                    |
+| 0x18  | CALL    | special      | Native function call (see below)      |
+| 0x19  | ADD     | 0            | Integer addition                      |
+| 0x1A  | SUB     | 0            | Integer subtraction                   |
+| 0x1B  | MUL     | 0            | Integer multiplication                |
+| 0x1C  | DIV     | 0            | Integer division                      |
+| 0x1D  | SHL     | 0            | Shift left                            |
+| 0x1E  | SHR     | 0            | Shift right                           |
+| 0x1F  | AND     | 0            | Bitwise AND                           |
+| 0x20  | OR      | 0            | Bitwise OR                            |
+| 0x21  | XOR     | 0            | Bitwise XOR                           |
+| 0x22  | LAND    | 0            | Logical AND                           |
+| 0x23  | LOR     | 0            | Logical OR                            |
+| 0x24  | EQ      | 0            | Equal comparison                      |
+| 0x25  | NE      | 0            | Not equal comparison                  |
+| 0x26  | LT      | 0            | Less than                             |
+| 0x27  | LE      | 0            | Less than or equal                    |
+| 0x28  | GT      | 0            | Greater than                          |
+| 0x29  | GE      | 0            | Greater than or equal                 |
+| 0x2A  | ASSIGN  | 0            | Assignment                            |
+| 0x2B  | PLUS    | 0            | Unary plus                            |
+| 0x2C  | MINUS   | 0            | Unary minus (negate)                  |
+| 0x2D  | INV     | 0            | Bitwise invert                        |
+| 0x2E  | NOT     | 0            | Logical NOT                           |
+| 0x2F  | BLK     | 0            | Block marker                          |
+| 0x30  | ILLEGAL | 0            | Illegal / invalid opcode              |
 
 ### 4.4 CALL Instruction Encoding
 
@@ -642,11 +644,11 @@ The CALL opcode has variable-length encoding:
 [0x18] [uint32 count] [int32 target_0] [int32 target_1] ... [int32 target_(count-1)]
 ```
 
-| Offset | Size        | Type     | Description                   |
-|--------|-------------|----------|-------------------------------|
-| 0      | 1           | uint8    | Opcode (0x18)                 |
-| 1      | 4           | uint32   | count -- number of call targets |
-| 5      | count * 4   | int32[]  | Array of call target offsets  |
+| Offset | Size      | Type    | Description                     |
+| ------ | --------- | ------- | ------------------------------- |
+| 0      | 1         | uint8   | Opcode (0x18)                   |
+| 1      | 4         | uint32  | count -- number of call targets |
+| 5      | count * 4 | int32[] | Array of call target offsets    |
 
 **Total instruction size:** `1 + 4 + (count * 4)` bytes.
 
@@ -691,10 +693,10 @@ RES files bundle multiple named resources (models, textures, scripts, etc.) into
 
 ### 5.2 Chunk Layout
 
-| Field  | FourCC (LE hex) | Description                              |
-|--------|-----------------|------------------------------------------|
-| NAME   | 0x454D414E      | Resource name (null-terminated string)   |
-| BODY   | 0x59444F42      | Resource data (raw bytes)                |
+| Field | FourCC (LE hex) | Description                            |
+| ----- | --------------- | -------------------------------------- |
+| NAME  | 0x454D414E      | Resource name (null-terminated string) |
+| BODY  | 0x59444F42      | Resource data (raw bytes)              |
 
 Chunks alternate NAME/BODY pairs. If a BODY chunk appears without a preceding NAME, it is assigned a synthetic name `<unnamed_N>`.
 
@@ -706,10 +708,10 @@ All chunks are aligned to 4-byte boundaries. If a chunk's data does not end on a
 
 Unlike MEF's linked-list chunks, RES uses a simpler 8-byte chunk header:
 
-| Offset | Size | Type     | Description            |
-|--------|------|----------|------------------------|
-| 0x00   | 4    | uint32   | FourCC identifier      |
-| 0x04   | 4    | uint32   | Data size              |
+| Offset | Size | Type   | Description       |
+| ------ | ---- | ------ | ----------------- |
+| 0x00   | 4    | uint32 | FourCC identifier |
+| 0x04   | 4    | uint32 | Data size         |
 
 Data follows immediately at offset 0x08 from the chunk start.
 
@@ -737,43 +739,43 @@ MTP files define which textures belong to which models for a given level or asse
 
 ### 6.1 File Header (12 bytes)
 
-| Offset | Size | Type         | Description                         |
-|--------|------|--------------|-------------------------------------|
-| 0x00   | 4    | char[4]      | Magic: `"FORM"`                     |
-| 0x04   | 4    | uint32 (BE)  | FORM payload size (big-endian)      |
-| 0x08   | 4    | char[4]      | Format ID: `"MTP "` (with trailing space) |
+| Offset | Size | Type        | Description                               |
+| ------ | ---- | ----------- | ----------------------------------------- |
+| 0x00   | 4    | char[4]     | Magic: `"FORM"`                           |
+| 0x04   | 4    | uint32 (BE) | FORM payload size (big-endian)            |
+| 0x08   | 4    | char[4]     | Format ID: `"MTP "` (with trailing space) |
 
 ### 6.2 IFF Chunk Header (8 bytes)
 
-| Offset | Size | Type         | Description                    |
-|--------|------|--------------|--------------------------------|
-| 0x00   | 4    | char[4]      | FourCC chunk type              |
-| 0x04   | 4    | uint32 (BE)  | Data size (big-endian)         |
+| Offset | Size | Type        | Description            |
+| ------ | ---- | ----------- | ---------------------- |
+| 0x00   | 4    | char[4]     | FourCC chunk type      |
+| 0x04   | 4    | uint32 (BE) | Data size (big-endian) |
 
 Chunks are aligned to 2-byte boundaries (standard IFF). If data size is odd, one padding byte follows.
 
 ### 6.3 Chunk Types
 
-| FourCC | Description                            | Data Format              |
-|--------|----------------------------------------|--------------------------|
-| `BANM` | Bone animation names                   | String array             |
-| `SNDS` | Sound names                            | String array             |
-| `SVOL` | Shadow volume names                    | String array             |
-| `MODS` | Model filenames                        | String array             |
-| `VNAM` | Vertex names                           | String array             |
-| `TEXF` | Texture filenames                      | String array             |
-| `PALF` | Palette filenames                      | String array             |
-| `GTT`  | (Unknown purpose)                      | -                        |
-| `INST` | Model-texture instance mappings        | Instance array (see below) |
+| FourCC | Description                     | Data Format                |
+| ------ | ------------------------------- | -------------------------- |
+| `BANM` | Bone animation names            | String array               |
+| `SNDS` | Sound names                     | String array               |
+| `SVOL` | Shadow volume names             | String array               |
+| `MODS` | Model filenames                 | String array               |
+| `VNAM` | Vertex names                    | String array               |
+| `TEXF` | Texture filenames               | String array               |
+| `PALF` | Palette filenames               | String array               |
+| `GTT`  | (Unknown purpose)               | -                          |
+| `INST` | Model-texture instance mappings | Instance array (see below) |
 
 ### 6.4 String Array Format
 
 All string-list chunks (BANM, SVOL, MODS, TEXF, etc.) use this layout:
 
-| Offset | Size | Type   | Description                                    |
-|--------|------|--------|------------------------------------------------|
-| 0x00   | 4    | uint32 (LE) | count -- number of strings                |
-| 0x04   | var  | char[] | `count` null-terminated strings packed sequentially |
+| Offset | Size | Type        | Description                                         |
+| ------ | ---- | ----------- | --------------------------------------------------- |
+| 0x00   | 4    | uint32 (LE) | count -- number of strings                          |
+| 0x04   | var  | char[]      | `count` null-terminated strings packed sequentially |
 
 Note: The count field is little-endian despite the IFF chunk sizes being big-endian.
 
@@ -785,11 +787,11 @@ count.
 
 Each entry (variable length):
 
-| Offset | Size       | Type          | Description                           |
-|--------|------------|---------------|---------------------------------------|
-| 0x00   | 4          | uint32 (LE)   | modelIdx -- index into MODS array     |
-| 0x04   | 4          | uint32 (LE)   | texCount -- number of textures        |
-| 0x08   | texCount*4 | uint32 (LE)[] | Array of texture indices into TEXF    |
+| Offset | Size       | Type          | Description                        |
+| ------ | ---------- | ------------- | ---------------------------------- |
+| 0x00   | 4          | uint32 (LE)   | modelIdx -- index into MODS array  |
+| 0x04   | 4          | uint32 (LE)   | texCount -- number of textures     |
+| 0x08   | texCount*4 | uint32 (LE)[] | Array of texture indices into TEXF |
 
 Note: INST appears **before** TEXF in file order, so a parser must read all
 chunks first and resolve INST -> texture names afterward (the TEXF names are not
@@ -837,14 +839,14 @@ The file is a sequence of whitespace-separated tokens, one per line. Lines start
 
 ### 7.2 Token Sequence
 
-| Token Index | Description                                          |
-|-------------|------------------------------------------------------|
+| Token Index | Description                                                     |
+| ----------- | --------------------------------------------------------------- |
 | 0           | Total texture entry count (informational, not used for parsing) |
-| 1           | First model ID (string, e.g. `"300_01_1"`)           |
-| 2           | Number of textures for first model (integer)         |
-| 3..N        | Texture IDs for first model (strings)                |
-| N+1         | Second model ID                                      |
-| ...         | Repeating pattern                                    |
+| 1           | First model ID (string, e.g. `"300_01_1"`)                      |
+| 2           | Number of textures for first model (integer)                    |
+| 3..N        | Texture IDs for first model (strings)                           |
+| N+1         | Second model ID                                                 |
+| ...         | Repeating pattern                                               |
 
 ### 7.3 Example
 
@@ -862,6 +864,7 @@ metal_door
 ```
 
 This maps:
+
 - Model `300_01_1` to textures: `wall_brick`, `wall_concrete`, `floor_tile`
 - Model `301_01_1` to texture: `metal_door`
 
@@ -885,6 +888,7 @@ FunctionName(arg1, arg2, NestedFunc(innerArg), "string arg");
 ```
 
 **Argument types:**
+
 - **String:** Enclosed in double quotes (`"hello"`). Supports `\"` escape sequences.
 - **Number:** Integer or floating-point (e.g., `42`, `-3.14`, `1e5`).
 - **Boolean:** `TRUE` or `FALSE` (case-sensitive).
@@ -907,10 +911,10 @@ Task(1, "patrol",
 
 ### 8.3 Parser Limits
 
-| Constant       | Value  | Description                         |
-|----------------|--------|-------------------------------------|
-| MAX_QSC_FUNCS  | 4096   | Maximum function nodes              |
-| MAX_QSC_ARGS   | 65536  | Maximum argument nodes              |
+| Constant      | Value | Description            |
+| ------------- | ----- | ---------------------- |
+| MAX_QSC_FUNCS | 4096  | Maximum function nodes |
+| MAX_QSC_ARGS  | 65536 | Maximum argument nodes |
 
 ---
 
@@ -920,16 +924,17 @@ MagicObjects are mesh sub-parts with runtime behavior. They are the engine's sys
 
 The system is split across two data sources that the engine combines at load time:
 
-| Data Source          | Role                                                        |
-|----------------------|-------------------------------------------------------------|
-| `magicobjconfig.qsc` | Defines the **behavior** (what type of interactive object)  |
-| Parent model ATTA    | Defines the **placement** (transform in the parent mesh)    |
+| Data Source          | Role                                                       |
+| -------------------- | ---------------------------------------------------------- |
+| `magicobjconfig.qsc` | Defines the **behavior** (what type of interactive object) |
+| Parent model ATTA    | Defines the **placement** (transform in the parent mesh)   |
 
 ### 9.1 MagicObject Config Files
 
 Two formats exist depending on game version:
 
 **IGI 1** — `magicobjconfig.qsc` uses `Task_New`:
+
 ```qsc
 Task_New(-1, "MagicObjConfig",
     "name",       // lookup key — matches ATTA entry name
@@ -939,6 +944,7 @@ Task_New(-1, "MagicObjConfig",
 ```
 
 **IGI 2** — `magicobj.qvm` (compiled from `magicobj.qsc`) uses `DefineMagicObj`:
+
 ```qsc
 DefineMagicObj("model_id", "model_id", TASKTYPE_XXX);
 // Some task types have extra parameters:
@@ -957,23 +963,23 @@ The **parent** vehicle models (`614_01_1`, `622_01_1`, `700_01_1`) are NOT liste
 
 179 total MagicObj entries across all levels, using 15 distinct task types:
 
-| TASKTYPE               | Count | Description                                                                 |
-|------------------------|-------|-----------------------------------------------------------------------------|
-| `SHADOWVOLUME`         | 72    | Simplified geometry for stencil shadow casting. Most common — nearly every weapon and prop has one. Rendered separately from the main mesh. |
-| `GLASS`                | 64    | Breakable glass panels. Shatters on bullet impact or explosion.             |
-| `LADDER`               | 15    | Climbable surface. Player can interact to climb up/down.                   |
-| `DEATHZONE`            | 5     | Invisible kill volume. Instant death on contact (helicopter blades, fall zones). Models: `killbox`, `Killair`, `603_13`, `603_14`, `610_04`. |
-| `WHEEL`                | 5     | Rotating wheel/tire. Spins based on vehicle movement. Models: `600_05`, `600_06`, `616_02`, `661_02`, `663_02`. |
-| `AISTATIONARYGUN`      | 4     | Mounted gun position. AI or player can man it. Models: `313_09` (tripod gun), `661_03`, `700_01`, `720_06` (heli gun). |
-| `GRENADEPIN`           | 3     | Grenade pin that detaches on throw. Used by explosive, smoke, and flashbang grenades. |
-| `ROTOR`                | 3     | Helicopter rotor blade. Spins continuously. Models: `711_01`, `711_02`, `712_01`. |
-| `HITZONE`              | 2     | Damageable area (e.g. vehicle fuel tank). Has max damage and smoke threshold. Models: `709_02`, `709_03`. |
-| `CARDOOR`              | 1     | Hinged vehicle door. Rotation axis, 30 deg/sec speed, −118 deg max angle. Model: `610_02`. |
-| `DRAWER`               | 1     | Openable drawer. Model: `221_02`.                                           |
-| `RPGROCKET`            | 1     | RPG rocket projectile in flight. Model: `140_02`.                          |
-| `BOMBBACKPACK`         | 1     | Explosive backpack. Model: `113_02`.                                        |
-| `WEAPONMAGICOBJ`       | 1     | Generic weapon attachment point. `model=none` (virtual, no mesh).          |
-| `PRIMARYMAGICOBJ`      | 1     | Generic primary attachment point. `model=none` (virtual, no mesh).         |
+| TASKTYPE          | Count | Description                                                                                                                                  |
+| ----------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SHADOWVOLUME`    | 72    | Simplified geometry for stencil shadow casting. Most common — nearly every weapon and prop has one. Rendered separately from the main mesh.  |
+| `GLASS`           | 64    | Breakable glass panels. Shatters on bullet impact or explosion.                                                                              |
+| `LADDER`          | 15    | Climbable surface. Player can interact to climb up/down.                                                                                     |
+| `DEATHZONE`       | 5     | Invisible kill volume. Instant death on contact (helicopter blades, fall zones). Models: `killbox`, `Killair`, `603_13`, `603_14`, `610_04`. |
+| `WHEEL`           | 5     | Rotating wheel/tire. Spins based on vehicle movement. Models: `600_05`, `600_06`, `616_02`, `661_02`, `663_02`.                              |
+| `AISTATIONARYGUN` | 4     | Mounted gun position. AI or player can man it. Models: `313_09` (tripod gun), `661_03`, `700_01`, `720_06` (heli gun).                       |
+| `GRENADEPIN`      | 3     | Grenade pin that detaches on throw. Used by explosive, smoke, and flashbang grenades.                                                        |
+| `ROTOR`           | 3     | Helicopter rotor blade. Spins continuously. Models: `711_01`, `711_02`, `712_01`.                                                            |
+| `HITZONE`         | 2     | Damageable area (e.g. vehicle fuel tank). Has max damage and smoke threshold. Models: `709_02`, `709_03`.                                    |
+| `CARDOOR`         | 1     | Hinged vehicle door. Rotation axis, 30 deg/sec speed, −118 deg max angle. Model: `610_02`.                                                   |
+| `DRAWER`          | 1     | Openable drawer. Model: `221_02`.                                                                                                            |
+| `RPGROCKET`       | 1     | RPG rocket projectile in flight. Model: `140_02`.                                                                                            |
+| `BOMBBACKPACK`    | 1     | Explosive backpack. Model: `113_02`.                                                                                                         |
+| `WEAPONMAGICOBJ`  | 1     | Generic weapon attachment point. `model=none` (virtual, no mesh).                                                                            |
+| `PRIMARYMAGICOBJ` | 1     | Generic primary attachment point. `model=none` (virtual, no mesh).                                                                           |
 
 **Shadow volumes dominate:** 72 of 179 entries (40%) are `SHADOWVOLUME`. In the early 2000s, stencil shadow volumes were the standard real-time shadow technique. The engine needed a separate simplified mesh to project shadows — using the full-detail model was too expensive. These shadow meshes are stored as ATTA sub-parts; `magicobjconfig` tells the engine "this sub-part is a shadow volume, don't render it normally."
 
@@ -981,13 +987,13 @@ The **parent** vehicle models (`614_01_1`, `622_01_1`, `700_01_1`) are NOT liste
 
 XTVM magic vertices and the MagicObject system serve different purposes and are **independent**:
 
-| Feature        | XTVM Magic Vertices                             | ATTA MagicObjects                              |
-|----------------|-------------------------------------------------|------------------------------------------------|
-| Storage        | XTVM chunk in parent `.mef`                     | ATTA chunk + `magicobjconfig.qsc`              |
-| What it is     | A 3D position within the model                  | A separate sub-mesh with behavior              |
-| Purpose        | Engine event hook (gun fire origin, etc.)        | Interactive sub-object (door, glass, rotor...) |
-| Rendering      | Not rendered — invisible to player              | Has its own `.mef` mesh, may render            |
-| Relationship   | No direct relationship to ATTA entries          | Referenced by ATTA name in parent model        |
+| Feature      | XTVM Magic Vertices                       | ATTA MagicObjects                              |
+| ------------ | ----------------------------------------- | ---------------------------------------------- |
+| Storage      | XTVM chunk in parent `.mef`               | ATTA chunk + `magicobjconfig.qsc`              |
+| What it is   | A 3D position within the model            | A separate sub-mesh with behavior              |
+| Purpose      | Engine event hook (gun fire origin, etc.) | Interactive sub-object (door, glass, rotor...) |
+| Rendering    | Not rendered — invisible to player        | Has its own `.mef` mesh, may render            |
+| Relationship | No direct relationship to ATTA entries    | Referenced by ATTA name in parent model        |
 
 A model can have both: e.g., an AK47 has XTVM magic vertices for muzzle/clip positions *and* an ATTA sub-model registered as `SHADOWVOLUME`.
 
@@ -1042,62 +1048,62 @@ A model can have both: e.g., an AK47 has XTVM magic vertices for muzzle/clip pos
 
 ## Appendix A: FourCC Reference
 
-| FourCC | Hex (LE)   | Context   | Description                     |
-|--------|------------|-----------|---------------------------------|
-| ILFF   | 0x46464C49 | Container | ILFF file magic                 |
-| HSEM   | 0x4D455348 | MEF       | Mesh info                       |
-| XTRV   | 0x56525458 | MEF       | Render vertices                 |
-| DNER   | 0x52454E44 | MEF       | Render blocks / triangle data   |
-| ECAF   | 0x46414345 | MEF       | Face index buffer               |
-| D3DR   | 0x52443344 | MEF       | D3D render info                 |
-| XTVC   | 0x43565458 | MEF       | Collision vertices              |
-| ECFC   | 0x43464345 | MEF       | Collision faces                 |
-| ATTA   | 0x41545441 | MEF       | Attachment points               |
-| XTVM   | 0x4D565458 | MEF       | Magic vertices                  |
-| REIH   | 0x48494552 | MEF       | Bone hierarchy                  |
-| MANB   | 0x424E414D | MEF       | Bone names                      |
-| TAMC   | 0x434D4154 | MEF       | Material config                 |
-| IRES   | 0x53455249 | RES       | Resource archive format ID      |
-| NAME   | 0x454D414E | RES       | Resource name chunk             |
-| BODY   | 0x59444F42 | RES       | Resource body chunk             |
-| FORM   | -          | MTP       | IFF FORM container magic        |
-| MTP    | -          | MTP       | Model-Texture Package format ID |
-| BANM   | -          | MTP       | Bone animation names            |
-| SVOL   | -          | MTP       | Shadow volume names             |
-| MODS   | -          | MTP       | Model filenames                 |
-| TEXF   | -          | MTP       | Texture filenames               |
-| INST   | -          | MTP       | Instance mappings               |
-| LOOP   | 0x504F4F4C | TEX/QVM   | TEX & QVM file magic            |
-| BOBJ   | 0x4A424F42 | IFF       | Root IFF container (Body Object) |
-| BOBH   | 0x48424F42 | IFF       | Bone block container (BOdy Bone Header) |
+| FourCC | Hex (LE)   | Context   | Description                                    |
+| ------ | ---------- | --------- | ---------------------------------------------- |
+| ILFF   | 0x46464C49 | Container | ILFF file magic                                |
+| HSEM   | 0x4D455348 | MEF       | Mesh info                                      |
+| XTRV   | 0x56525458 | MEF       | Render vertices                                |
+| DNER   | 0x52454E44 | MEF       | Render blocks / triangle data                  |
+| ECAF   | 0x46414345 | MEF       | Face index buffer                              |
+| D3DR   | 0x52443344 | MEF       | D3D render info                                |
+| XTVC   | 0x43565458 | MEF       | Collision vertices                             |
+| ECFC   | 0x43464345 | MEF       | Collision faces                                |
+| ATTA   | 0x41545441 | MEF       | Attachment points                              |
+| XTVM   | 0x4D565458 | MEF       | Magic vertices                                 |
+| REIH   | 0x48494552 | MEF       | Bone hierarchy                                 |
+| MANB   | 0x424E414D | MEF       | Bone names                                     |
+| TAMC   | 0x434D4154 | MEF       | Material config                                |
+| IRES   | 0x53455249 | RES       | Resource archive format ID                     |
+| NAME   | 0x454D414E | RES       | Resource name chunk                            |
+| BODY   | 0x59444F42 | RES       | Resource body chunk                            |
+| FORM   | -          | MTP       | IFF FORM container magic                       |
+| MTP    | -          | MTP       | Model-Texture Package format ID                |
+| BANM   | -          | MTP       | Bone animation names                           |
+| SVOL   | -          | MTP       | Shadow volume names                            |
+| MODS   | -          | MTP       | Model filenames                                |
+| TEXF   | -          | MTP       | Texture filenames                              |
+| INST   | -          | MTP       | Instance mappings                              |
+| LOOP   | 0x504F4F4C | TEX/QVM   | TEX & QVM file magic                           |
+| BOBJ   | 0x4A424F42 | IFF       | Root IFF container (Body Object)               |
+| BOBH   | 0x48424F42 | IFF       | Bone block container (BOdy Bone Header)        |
 | BOAL   | 0x4C414F42 | IFF       | Animation list container (BOdy Animation List) |
-| BOAN   | 0x4E414F42 | IFF       | Animation clip container (BOdy ANimation) |
-| BOSH   | 0x48534F42 | IFF       | Bone sheet header (BOdy SHeet) |
-| PLST   | 0x54534C50 | IFF       | Parent list |
-| TLST   | 0x54534C54 | IFF       | Translation list |
-| BALH   | 0x484C4142 | IFF       | Animation list header |
-| BOAH   | 0x48414F42 | IFF       | Animation header |
-| BOEH   | 0x48454F42 | IFF       | Event track header |
-| BOED   | 0x44454F42 | IFF       | Event track data |
-| BOTH   | 0x48544F42 | IFF       | Root translation track header |
-| BOTD   | 0x44544F42 | IFF       | Root translation track data |
-| BORH   | 0x48524F42 | IFF       | Bone rotation track header |
-| BORD   | 0x44524F42 | IFF       | Bone rotation track data |
+| BOAN   | 0x4E414F42 | IFF       | Animation clip container (BOdy ANimation)      |
+| BOSH   | 0x48534F42 | IFF       | Bone sheet header (BOdy SHeet)                 |
+| PLST   | 0x54534C50 | IFF       | Parent list                                    |
+| TLST   | 0x54534C54 | IFF       | Translation list                               |
+| BALH   | 0x484C4142 | IFF       | Animation list header                          |
+| BOAH   | 0x48414F42 | IFF       | Animation header                               |
+| BOEH   | 0x48454F42 | IFF       | Event track header                             |
+| BOED   | 0x44454F42 | IFF       | Event track data                               |
+| BOTH   | 0x48544F42 | IFF       | Root translation track header                  |
+| BOTD   | 0x44544F42 | IFF       | Root translation track data                    |
+| BORH   | 0x48524F42 | IFF       | Bone rotation track header                     |
+| BORD   | 0x44524F42 | IFF       | Bone rotation track data                       |
 
 ## Appendix B: Constants
 
-| Constant                | Value          | Description                         |
-|-------------------------|----------------|-------------------------------------|
-| ILFF header size        | 20 bytes       | File header                         |
-| ILFF chunk header size  | 16 bytes       | Per-chunk header (MEF style)        |
-| RES chunk header size   | 8 bytes        | Per-chunk header (RES style)        |
-| IFF chunk header size   | 8 bytes        | Per-chunk header (MTP style)        |
-| MEF import scale        | 1.0 / 40.96    | ~0.024414 (native units to meters)  |
-| MEF render scale        | 40.96          | Meters to native units              |
-| ILFF alignment          | 4 bytes        | Standard alignment                  |
-| IFF alignment           | 2 bytes        | Standard IFF alignment              |
-| QVM version             | 8.5            | Expected ver_major=8, ver_minor=5   |
-| TEX versions supported  | 2, 7, 9, 11   | Known TEX format versions           |
+| Constant               | Value       | Description                        |
+| ---------------------- | ----------- | ---------------------------------- |
+| ILFF header size       | 20 bytes    | File header                        |
+| ILFF chunk header size | 16 bytes    | Per-chunk header (MEF style)       |
+| RES chunk header size  | 8 bytes     | Per-chunk header (RES style)       |
+| IFF chunk header size  | 8 bytes     | Per-chunk header (MTP style)       |
+| MEF import scale       | 1.0 / 40.96 | ~0.024414 (native units to meters) |
+| MEF render scale       | 40.96       | Meters to native units             |
+| ILFF alignment         | 4 bytes     | Standard alignment                 |
+| IFF alignment          | 2 bytes     | Standard IFF alignment             |
+| QVM version            | 8.5         | Expected ver_major=8, ver_minor=5  |
+| TEX versions supported | 2, 7, 9, 11 | Known TEX format versions          |
 
 ## Appendix C: Parsing Quick Reference
 
@@ -1311,7 +1317,7 @@ FNT files store bitmap fonts used for in-game text rendering. Each file is an IL
 Each chunk follows the standard ILFF chunk layout:
 
 | Field     | Type   | Description                           |
-|-----------|--------|---------------------------------------|
+| --------- | ------ | ------------------------------------- |
 | FourCC    | 4s     | Chunk signature (e.g. `FNTH`, `ANMF`) |
 | Length    | uint32 | Content length in bytes               |
 | Alignment | uint32 | Padding alignment (always 4)          |
@@ -1322,7 +1328,7 @@ Each chunk follows the standard ILFF chunk layout:
 24 bytes, 6 × uint32 little-endian.
 
 | Offset | Type   | Field       | Description                   |
-|--------|--------|-------------|-------------------------------|
+| ------ | ------ | ----------- | ----------------------------- |
 | 0      | uint32 | version     | Format version (always 1)     |
 | 4      | uint32 | num_glyphs  | Number of glyphs in the font  |
 | 8      | uint32 | cell_height | Line height in pixels         |
@@ -1333,7 +1339,7 @@ Each chunk follows the standard ILFF chunk layout:
 Typical values across game files:
 
 | Font file           | Glyphs | Cell height | Texture size |
-|---------------------|--------|-------------|--------------|
+| ------------------- | ------ | ----------- | ------------ |
 | font2.fnt           | 158    | 11          | 128 × 64     |
 | font1.fnt           | 158    | 13          | 128 × 128    |
 | fontmp.fnt          | 154    | 16          | 128 × 128    |
@@ -1347,7 +1353,7 @@ Typical values across game files:
 #### Glyph entry (40 bytes)
 
 | Offset | Type   | Field      | Description                                   |
-|--------|--------|------------|-----------------------------------------------|
+| ------ | ------ | ---------- | --------------------------------------------- |
 | 0      | float  | v_top      | Top edge V coordinate (normalized 0–1)        |
 | 4      | float  | u_left     | Left edge U coordinate (normalized 0–1)       |
 | 8      | float  | v_offset   | Vertical offset (normalized, purpose unclear) |
@@ -1380,7 +1386,7 @@ Glyphs are packed left-to-right into rows within the texture atlas. When a row i
 `num_glyphs × 2` bytes. An array of uint16 values mapping each glyph index to its character code point.
 
 | Glyph index | Char code | Character |
-|-------------|-----------|-----------|
+| ----------- | --------- | --------- |
 | 0           | 33        | !         |
 | 1           | 34        | "         |
 | 2           | 35        | #         |
@@ -1392,7 +1398,7 @@ The mapping covers ASCII printable characters (33–126) and extended Latin char
 24 bytes, 12 × uint16 little-endian.
 
 | Offset | Type   | Field       | Description                          |
-|--------|--------|-------------|--------------------------------------|
+| ------ | ------ | ----------- | ------------------------------------ |
 | 0      | uint16 | format      | Texture format (always 3 = ARGB8888) |
 | 2–12   | uint16 | unknown     | 6 × padding (always 0)               |
 | 14     | uint16 | width       | Texture width in pixels              |
@@ -1408,7 +1414,7 @@ The mapping covers ASCII printable characters (33–126) and extended Latin char
 The texture stores glyphs as follows:
 
 | Channel | Content                                           |
-|---------|---------------------------------------------------|
+| ------- | ------------------------------------------------- |
 | B, G, R | Glyph color (typically white `0xFF` or grayscale) |
 | A       | Glyph shape / opacity                             |
 
@@ -1450,31 +1456,31 @@ FORM <size BE> BOBJ                          root container (Body Object)
 
 ### 11.2 Chunk Reference
 
-| FourCC | Container | Description |
-|--------|-----------|-------------|
-| `FORM` | root      | IFF container (generic) |
-| `BOBJ` | root      | Root container type (Body Object) |
-| `BOBH` | BOBJ      | Bone block container |
-| `BOAL` | BOBJ      | Animation list container |
-| `BOAN` | BOAL      | Single animation clip container |
-| `BOSH` | BOBH      | Bone sheet header: `objectID`, `boneCount` |
-| `PLST` | BOBH      | Parent list: one `int32` parent index per bone |
+| FourCC | Container | Description                                         |
+| ------ | --------- | --------------------------------------------------- |
+| `FORM` | root      | IFF container (generic)                             |
+| `BOBJ` | root      | Root container type (Body Object)                   |
+| `BOBH` | BOBJ      | Bone block container                                |
+| `BOAL` | BOBJ      | Animation list container                            |
+| `BOAN` | BOAL      | Single animation clip container                     |
+| `BOSH` | BOBH      | Bone sheet header: `objectID`, `boneCount`          |
+| `PLST` | BOBH      | Parent list: one `int32` parent index per bone      |
 | `TLST` | BOBH      | Translation list: one `(px,py,pz)` triplet per bone |
-| `BALH` | BOAL      | Animation list header: `numAnims`, `capacity` |
-| `BOAH` | BOAN      | Animation header: duration, flags, animation ID |
-| `BOEH` | BOAN      | Event track header: event count |
-| `BOED` | BOAN      | Event track data |
-| `BOTH` | BOAN      | Root translation track header: key count |
-| `BOTD` | BOAN      | Root translation track data |
-| `BORH` | BOAN      | Bone rotation track header: key count (per bone) |
-| `BORD` | BOAN      | Bone rotation track data |
+| `BALH` | BOAL      | Animation list header: `numAnims`, `capacity`       |
+| `BOAH` | BOAN      | Animation header: duration, flags, animation ID     |
+| `BOEH` | BOAN      | Event track header: event count                     |
+| `BOED` | BOAN      | Event track data                                    |
+| `BOTH` | BOAN      | Root translation track header: key count            |
+| `BOTD` | BOAN      | Root translation track data                         |
+| `BORH` | BOAN      | Bone rotation track header: key count (per bone)    |
+| `BORD` | BOAN      | Bone rotation track data                            |
 
 ### 11.3 BOSH -- Bone Sheet Header (8 bytes)
 
-| Offset | Size | Type   | Description |
-|--------|------|--------|-------------|
+| Offset | Size | Type      | Description                                          |
+| ------ | ---- | --------- | ---------------------------------------------------- |
 | 0x00   | 4    | uint32 LE | objectID — model identifier (e.g. `3` for `003.IFF`) |
-| 0x04   | 4    | uint32 LE | boneCount — number of bones in the skeleton |
+| 0x04   | 4    | uint32 LE | boneCount — number of bones in the skeleton          |
 
 ### 11.4 PLST -- Parent List
 
@@ -1486,39 +1492,39 @@ Flat array of `boneCount` × (3 × `float32 LE`) rest-pose position triplets. Va
 
 ### 11.6 BALH -- Animation List Header (8 bytes)
 
-| Offset | Size | Type   | Description |
-|--------|------|--------|-------------|
-| 0x00   | 4    | uint32 LE | numAnims — number of animation clips |
+| Offset | Size | Type      | Description                                    |
+| ------ | ---- | --------- | ---------------------------------------------- |
+| 0x00   | 4    | uint32 LE | numAnims — number of animation clips           |
 | 0x04   | 4    | uint32 LE | lidAnims — capacity (usually matches numAnims) |
 
 ### 11.7 BOAH -- Animation Header (12 bytes)
 
-| Offset | Size | Type   | Description |
-|--------|------|--------|-------------|
-| 0x00   | 4    | float32 LE | length — animation duration in milliseconds |
-| 0x04   | 2    | uint16 LE | (reserved, usually 0) |
-| 0x06   | 2    | uint16 LE | flags — clip flags (bit 0 = tp_flag) |
-| 0x08   | 4    | uint32 LE | animation_id — numeric identifier for this clip |
+| Offset | Size | Type       | Description                                     |
+| ------ | ---- | ---------- | ----------------------------------------------- |
+| 0x00   | 4    | float32 LE | length — animation duration in milliseconds     |
+| 0x04   | 2    | uint16 LE  | (reserved, usually 0)                           |
+| 0x06   | 2    | uint16 LE  | flags — clip flags (bit 0 = tp_flag)            |
+| 0x08   | 4    | uint32 LE  | animation_id — numeric identifier for this clip |
 
 ### 11.8 BOTD -- Root Translation Key (40 bytes per key)
 
 Each key contains 10 × `float32 LE`:
 
-| Offset | Size | Type    | Field |
-|--------|------|---------|-------|
-| 0x00   | 12   | float32[3] | Position `(px, py, pz)` in IGI world units |
-| 0x0C   | 4    | float32    | Time in milliseconds |
-| 0x10   | 12   | float32[3] | Incoming cubic spline tangent `(tx_in, ty_in, tz_in)` |
+| Offset | Size | Type       | Field                                                    |
+| ------ | ---- | ---------- | -------------------------------------------------------- |
+| 0x00   | 12   | float32[3] | Position `(px, py, pz)` in IGI world units               |
+| 0x0C   | 4    | float32    | Time in milliseconds                                     |
+| 0x10   | 12   | float32[3] | Incoming cubic spline tangent `(tx_in, ty_in, tz_in)`    |
 | 0x1C   | 12   | float32[3] | Outgoing cubic spline tangent `(tx_out, ty_out, tz_out)` |
 
 ### 11.9 BORD -- Bone Rotation Key (52 bytes per key)
 
 Each key contains 13 × `float32 LE` (three quaternions plus time):
 
-| Offset | Size | Type    | Field |
-|--------|------|---------|-------|
+| Offset | Size | Type       | Field                                          |
+| ------ | ---- | ---------- | ---------------------------------------------- |
 | 0x00   | 16   | float32[4] | Quaternion q0 `(x, y, z, w)` — control point 0 |
-| 0x10   | 4    | float32    | Time in milliseconds |
+| 0x10   | 4    | float32    | Time in milliseconds                           |
 | 0x14   | 16   | float32[4] | Quaternion q1 `(x, y, z, w)` — control point 1 |
 | 0x24   | 16   | float32[4] | Quaternion q2 `(x, y, z, w)` — control point 2 |
 
@@ -1528,11 +1534,11 @@ Three quaternions per keyframe represent the three cubic interpolation control p
 
 Each event contains 2 × `int32 LE` + 4 × `float32 LE`:
 
-| Offset | Size | Type   | Field |
-|--------|------|--------|-------|
-| 0x00   | 4    | int32 LE  | event_id — event type identifier |
-| 0x04   | 4    | int32 LE  | bone_id — target bone index (-1 = root) |
-| 0x08   | 4    | float32 LE | time — time in milliseconds |
+| Offset | Size | Type       | Field                                      |
+| ------ | ---- | ---------- | ------------------------------------------ |
+| 0x00   | 4    | int32 LE   | event_id — event type identifier           |
+| 0x04   | 4    | int32 LE   | bone_id — target bone index (-1 = root)    |
+| 0x08   | 4    | float32 LE | time — time in milliseconds                |
 | 0x0C   | 12   | float32[3] | position `(px, py, pz)` in IGI world units |
 
 ### 11.11 IFF C++ Struct Layout
@@ -1608,7 +1614,7 @@ struct IffSkeleton {
 **Extension:** `.bef`
 **Container:** None (plain text)
 
-BEF ("Behaviour/Build Extended Format") is the human-readable text representation of one IFF animation clip plus the bone skeleton it references. Each BEF file corresponds to a single animation clip and is usually written as `<model>_<anim>.BEF` (e.g. `003_anim_004.BEF`) by `igi1conv iff convert`.
+BEF ("Bones Exported Format") is the human-readable text representation of one IFF animation clip plus the bone skeleton it references. Each BEF file corresponds to a single animation clip and is usually written as `<model>_<anim>.BEF` (e.g. `003_anim_004.BEF`) by `igi1conv iff convert`.
 
 The format is line-oriented with `//` line comments. Each line is a function-call-style statement terminated by a semicolon.
 
@@ -1638,12 +1644,12 @@ TriggerData(<idx>, <event_id>, <time_ms>, <bone_id>, <px>, <py>, <pz>);
 AnimInit("<name>", <flags>, <length_ms>, <tp_flag>);
 ```
 
-| Argument    | Type   | Description |
-|-------------|--------|-------------|
-| `name`      | string | Animation name, e.g. `"003_anim_004"` |
-| `flags`     | int    | Animation flags (typically 0) |
+| Argument    | Type   | Description                                                              |
+| ----------- | ------ | ------------------------------------------------------------------------ |
+| `name`      | string | Animation name, e.g. `"003_anim_004"`                                    |
+| `flags`     | int    | Animation flags (typically 0)                                            |
 | `length_ms` | int    | Duration in milliseconds (+1 from actual duration per engine convention) |
-| `tp_flag`   | int    | Clip type flag (0 or 1, becomes `flags` bit 0 in binary IFF) |
+| `tp_flag`   | int    | Clip type flag (0 or 1, becomes `flags` bit 0 in binary IFF)             |
 
 #### Bone
 
@@ -1651,12 +1657,12 @@ AnimInit("<name>", <flags>, <length_ms>, <tp_flag>);
 Bone(<idx>, "<name>", <parent>, <px>, <py>, <pz>);
 ```
 
-| Argument | Type   | Description |
-|----------|--------|-------------|
-| `idx`    | int    | Bone index (0-based) |
-| `name`   | string | Bone name (e.g. `"Bone_00"`, `"Bone_01"`) |
-| `parent` | int    | Parent bone index (-1 = no parent / root) |
-| `px,py,pz` | float | Rest-pose position in IGI units (already divided by `Sc = 40.96`) |
+| Argument   | Type   | Description                                                       |
+| ---------- | ------ | ----------------------------------------------------------------- |
+| `idx`      | int    | Bone index (0-based)                                              |
+| `name`     | string | Bone name (e.g. `"Bone_00"`, `"Bone_01"`)                         |
+| `parent`   | int    | Parent bone index (-1 = no parent / root)                         |
+| `px,py,pz` | float  | Rest-pose position in IGI units (already divided by `Sc = 40.96`) |
 
 #### TranslationKeyFrameData
 
@@ -1664,11 +1670,11 @@ Bone(<idx>, "<name>", <parent>, <px>, <py>, <pz>);
 TranslationKeyFrameData(<track>, <flag>, <time_ms>, <px>, <py>, <pz>);
 ```
 
-| Argument | Type   | Description |
-|----------|--------|-------------|
-| `track`  | int    | Track index (always 0 for root bone) |
-| `flag`   | int    | Key flag (always 0 in practice) |
-| `time_ms` | int   | Time in milliseconds |
+| Argument   | Type  | Description                              |
+| ---------- | ----- | ---------------------------------------- |
+| `track`    | int   | Track index (always 0 for root bone)     |
+| `flag`     | int   | Key flag (always 0 in practice)          |
+| `time_ms`  | int   | Time in milliseconds                     |
 | `px,py,pz` | float | Translation in IGI units (divided by Sc) |
 
 Note: The IFF binary format stores incoming/outgoing cubic spline tangents (10 floats per key), but the BEF text format does **not** carry tangent data. Tangents are written as zero on round-trip.
@@ -1682,14 +1688,14 @@ RotationKeyFrameData(<bone>, <flag>, <time_ms>,
                      <qx2>, <qy2>, <qz2>, <qw2>);
 ```
 
-| Argument | Type   | Description |
-|----------|--------|-------------|
-| `bone`   | int    | Bone index this rotation belongs to |
-| `flag`   | int    | Key flag (always 0 in practice) |
-| `time_ms` | int   | Time in milliseconds |
-| `q0...`  | float[4] | Quaternion control point 0 `(x, y, z, w)` |
-| `q1...`  | float[4] | Quaternion control point 1 `(x, y, z, w)` |
-| `q2...`  | float[4] | Quaternion control point 2 `(x, y, z, w)` |
+| Argument  | Type     | Description                               |
+| --------- | -------- | ----------------------------------------- |
+| `bone`    | int      | Bone index this rotation belongs to       |
+| `flag`    | int      | Key flag (always 0 in practice)           |
+| `time_ms` | int      | Time in milliseconds                      |
+| `q0...`   | float[4] | Quaternion control point 0 `(x, y, z, w)` |
+| `q1...`   | float[4] | Quaternion control point 1 `(x, y, z, w)` |
+| `q2...`   | float[4] | Quaternion control point 2 `(x, y, z, w)` |
 
 Three quaternions per keyframe provide the three cubic interpolation control points used by the IGI 1 engine.
 
@@ -1699,20 +1705,20 @@ Three quaternions per keyframe provide the three cubic interpolation control poi
 TriggerData(<idx>, <event_id>, <time_ms>, <bone_id>, <px>, <py>, <pz>);
 ```
 
-| Argument  | Type   | Description |
-|-----------|--------|-------------|
-| `idx`     | int    | Sequential event index (0-based) |
-| `event_id` | int   | Event type identifier |
-| `time_ms`  | int   | Time in milliseconds |
+| Argument   | Type  | Description                                      |
+| ---------- | ----- | ------------------------------------------------ |
+| `idx`      | int   | Sequential event index (0-based)                 |
+| `event_id` | int   | Event type identifier                            |
+| `time_ms`  | int   | Time in milliseconds                             |
 | `bone_id`  | int   | Bone index this event is attached to (-1 = root) |
-| `px,py,pz` | float | Position in IGI units (divided by Sc) |
+| `px,py,pz` | float | Position in IGI units (divided by Sc)            |
 
 #### Structural Keywords
 
-| Keyword | Description |
-|---------|-------------|
-| `BreakScript()` | Separator between logical sections |
-| `BuildHierarchy()` | Signals end of bone definitions |
+| Keyword            | Description                        |
+| ------------------ | ---------------------------------- |
+| `BreakScript()`    | Separator between logical sections |
+| `BuildHierarchy()` | Signals end of bone definitions    |
 
 ### 12.3 Scale Factor
 
@@ -1824,9 +1830,9 @@ BuildStatic("level");
 
 The `iff decompile` command produces a separate, higher-fidelity text format (`.IFF` text, not BEF) that preserves cubic spline tangents. The decompiled format has two file types:
 
-| File | Contents |
-|------|----------|
-| `<basename>.IFF` | Skeleton + animation list (bone parents, positions, clip references) |
+| File                       | Contents                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| `<basename>.IFF`           | Skeleton + animation list (bone parents, positions, clip references)              |
 | `anims_<id>/anim_<id>.IFF` | Per-clip data (header, events, translation keys **with tangents**, rotation keys) |
 
 The decompiled format is used by `iff create` as an alternative to BEF when tangent preservation is needed. BEF is the simpler, lossy-but-more-portable format.
@@ -1847,30 +1853,30 @@ OLM has no FourCC magic; it is identified by a `version1` float in the range `[0
 
 **Main Header (`OlmMainHeader`, packed, no magic field):**
 
-| Field            | Type     | Description                              |
-|------------------|----------|-------------------------------------------|
-| `version1`       | float32  | Format version; must be in `[0.11, 0.13]` |
-| `version2`       | float32  | Secondary version field                   |
-| `year`..`millisecond` | uint32 x7 | Bake timestamp                       |
-| `unknown_0`      | uint32   | Unknown                                   |
-| `count1`         | uint32   | Unknown count                             |
-| `layer_count`    | uint32   | Number of layers                          |
-| `reserved[4]`    | uint32 x4 | Reserved                                  |
-| `width`, `height`| uint16   | Atlas grid dimensions                     |
-| `total_stride`   | uint16   | Unknown                                   |
-| `format`         | uint16   | Pixel format identifier                   |
-| `pad`            | uint32   | Padding                                   |
-| `uv_scale_u/v`   | float32  | UV scale factors                          |
-| `zero`           | float32  | Unknown (observed as 0)                   |
+| Field                 | Type      | Description                               |
+| --------------------- | --------- | ----------------------------------------- |
+| `version1`            | float32   | Format version; must be in `[0.11, 0.13]` |
+| `version2`            | float32   | Secondary version field                   |
+| `year`..`millisecond` | uint32 x7 | Bake timestamp                            |
+| `unknown_0`           | uint32    | Unknown                                   |
+| `count1`              | uint32    | Unknown count                             |
+| `layer_count`         | uint32    | Number of layers                          |
+| `reserved[4]`         | uint32 x4 | Reserved                                  |
+| `width`, `height`     | uint16    | Atlas grid dimensions                     |
+| `total_stride`        | uint16    | Unknown                                   |
+| `format`              | uint16    | Pixel format identifier                   |
+| `pad`                 | uint32    | Padding                                   |
+| `uv_scale_u/v`        | float32   | UV scale factors                          |
+| `zero`                | float32   | Unknown (observed as 0)                   |
 
 **Layer Descriptor (`OlmLayerDescriptor`, immediately follows the main header):**
 
 | Field          | Type   | Description                  |
-|----------------|--------|-------------------------------|
-| `flags`        | uint32 | Layer flags                   |
-| `ptr1`, `ptr2` | uint32 | Unknown pointers/offsets      |
-| `pixel_width`  | uint16 | Actual lightmap pixel width   |
-| `pixel_height` | uint16 | Actual lightmap pixel height  |
+| -------------- | ------ | ---------------------------- |
+| `flags`        | uint32 | Layer flags                  |
+| `ptr1`, `ptr2` | uint32 | Unknown pointers/offsets     |
+| `pixel_width`  | uint16 | Actual lightmap pixel width  |
+| `pixel_height` | uint16 | Actual lightmap pixel height |
 
 **Pixel Data:**
 
