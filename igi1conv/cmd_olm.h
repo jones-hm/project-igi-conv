@@ -50,4 +50,20 @@ struct OLMFile {
 };
 
 OLMFile ParseOlm(const std::string& path);
+
+// Write an OLMFile back to disk in the IGI1 single-layer binary layout
+// (88-byte main header + 16-byte layer descriptor + RGBA pixels). The pixels
+// in `olm` are expected in native OLM channel order (R,G,B,A as stored on
+// disk) — callers converting from an image must swap R/B first. Returns true
+// on success; on failure sets `err`.
+bool WriteOlm(const std::string& path, const OLMFile& olm, std::string& err);
+
+// Build an OLMFile carrying the given RGBA pixels (image order, R first) at
+// width x height. If `templateOlm` is non-null its header/layer metadata
+// (uv scale, version, etc.) are copied so a re-baked file keeps the original
+// runtime fields; otherwise sensible IGI1 defaults are filled in. The pixels
+// are stored in native OLM order (R/B swapped from the supplied image order).
+OLMFile BuildOlmFromRGBA(const uint8_t* rgba, uint16_t width, uint16_t height,
+                         const OLMFile* templateOlm);
+
 int cmd_olm(int argc, char** argv);
