@@ -171,6 +171,10 @@ Used for level geometry with lightmap UVs.
 | 1          | 40 bytes    | 24        | Bone/skeletal (pos + normal + uv0 + uv1/weight/bone) |
 | 3          | 40 bytes    | 24        | Lightmap (pos + normal + uv0 + uv1) |
 
+**IGI 2 type 3** uses a 28-byte vertex (`pos + uv0 + uv1`, no normals). The parser
+detects stride from `XTRV.size / HSEM.vertCount` (HSEM+100) when that quotient is
+28, 32, 36, or 40.
+
 The vertex count is determined by: `XTRV.chunk_data_size / vertex_size`.
 
 ### 2.4 D3DR Chunk -- Render Info
@@ -288,7 +292,11 @@ enum class BoneRigType {
 
 ### 2.6 ECAF Chunk -- Face Index Buffer
 
-A flat array of `uint16` triangle indices, used by Type 1 (bone) models with split DNER parsing. Total index count: `ECAF.size / 2`.
+A flat array of `uint16` triangle indices. IGI 1 uses ECAF only for Type 1
+split-bone models. **IGI 2 (OCEM) stores faces in ECAF for every model type.**
+DNER is then a table of fixed records (28 bytes for type 3, 32 for type 0/1):
+`index_offset` at +16, `face_count` at +18, material `td` at +24. ECAF indices
+are global. Total index count: `ECAF.size / 2`.
 
 ### 2.7 Collision Mesh Chunks
 

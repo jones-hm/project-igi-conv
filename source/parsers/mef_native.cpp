@@ -239,24 +239,53 @@ D3drInfo ReadD3drInfo(const std::vector<uint8_t>& bytes, const std::vector<Chunk
 // XTRV vertex parser
 // ---------------------------------------------------------------------------
 
-std::vector<RenderVertex> ParseRenderVertices(const std::vector<uint8_t>& bytes, const ChunkInfo& chunk, uint32_t modelType) {
-    uint32_t vertexSize = 0;
-    uint32_t uvOffset   = 24; // default: pos(12) + normal(12) + uv(8)
-    switch (modelType) {
-    case 0:
-        vertexSize = 32;
-        uvOffset   = 24;  // pos(12) + normal(12) + uv(8)
-        break;
-    case 1:
-        vertexSize = 40;
-        uvOffset   = 24;  // pos(12) + normal(12) + uv0(8) + w(4) + vn(2) + bn(2)
-        break;
-    case 3:
-        vertexSize = 40;
-        uvOffset   = 24;  // pos(12) + normal(12) + uv(8); same layout as Type 0/1
-        break;
-    default:
-        throw std::runtime_error("Unsupported MEF modelType in XTRV");
+uint32_t DefaultVertexStride(uint32_t modelType) {
+    if (modelType == 0) return 32;
+    if (modelType == 1 || modelType == 3) return 40;
+    throw std::runtime_error("Unsupported MEF modelType in XTRV");
+}
+
+uint32_t ReadHsemVertCount(const std::vector<uint8_t>& bytes, const std::vector<ChunkInfo>& chunks) {
+    const ChunkInfo* hsem = FindChunk(chunks, "HSEM");
+    if (!hsem || hsem->size < 104) return 0;
+    return ReadValue<uint32_t>(bytes, hsem->data + 100);
+}
+
+uint32_t DetectXtrvStride(uint32_t modelType, uint32_t xtrvSize, uint32_t hsemVerts) {
+    if (hsemVerts > 0 && xtrvSize > 0 && (xtrvSize % hsemVerts) == 0) {
+        const uint32_t detected = xtrvSize / hsemVerts;
+        if (detected == 28 || detected == 32 || detected == 36 || detected == 40) {
+            return detected;
+        }
+    }
+    const uint32_t expected = DefaultVertexStride(modelType);
+    if (xtrvSize == 0 || (xtrvSize % expected) == 0) {
+        return expected;
+    }
+    for (uint32_t candidate : {28u, 32u, 36u, 40u}) {
+        if ((xtrvSize % candidate) == 0) {
+            return candidate;
+        }
+    }
+    return expected;
+}
+
+bool DetectIgi2(const std::vector<uint8_t>& bytes, const ChunkInfo* hsem) {
+    const bool ocem = bytes.size() >= 20 && std::memcmp(bytes.data() + 16, "OCEM", 4) == 0;
+    return ocem || (hsem && hsem->size == 176);
+}
+
+std::vector<RenderVertex> ParseRenderVertices(
+    const std::vector<uint8_t>& bytes,
+    const ChunkInfo& chunk,
+    uint32_t modelType,
+    uint32_t vertexSize)
+{
+    if (vertexSize == 0) {
+        vertexSize = DefaultVertexStride(modelType);
+    }
+    if (vertexSize == 0 || (chunk.size % vertexSize) != 0) {
+        throw std::runtime_error("XTRV size is not a multiple of stride");
     }
 
     const size_t count = chunk.size / vertexSize;
@@ -273,26 +302,37 @@ std::vector<RenderVertex> ParseRenderVertices(const std::vector<uint8_t>& bytes,
         vertices[i].rawPos = rawPos;
         vertices[i].pos = rawPos * kMefNativeScale;
 
-        // Normal is present for all model types at +12..+23
+        if (vertexSize == 28) {
+            // IGI 2 type 3: pos(12) + uv0(8) + uv1(8), no stored normals.
+            vertices[i].uv = glm::vec2(
+                ReadValue<float>(bytes, base + 12),
+                ReadValue<float>(bytes, base + 16)
+            );
+            vertices[i].uv2 = glm::vec2(
+                ReadValue<float>(bytes, base + 20),
+                ReadValue<float>(bytes, base + 24)
+            );
+            continue;
+        }
+
         vertices[i].normal = glm::vec3(
             ReadValue<float>(bytes, base + 12),
             ReadValue<float>(bytes, base + 16),
             ReadValue<float>(bytes, base + 20)
         );
-
         vertices[i].uv = glm::vec2(
-            ReadValue<float>(bytes, base + uvOffset),
-            ReadValue<float>(bytes, base + uvOffset + 4)
+            ReadValue<float>(bytes, base + 24),
+            ReadValue<float>(bytes, base + 28)
         );
 
-        if (modelType == 3) {
+        if (modelType == 3 && vertexSize >= 40) {
             vertices[i].uv2 = glm::vec2(
                 ReadValue<float>(bytes, base + 32),
                 ReadValue<float>(bytes, base + 36)
             );
         }
 
-        if (modelType == 1) {
+        if (modelType == 1 && vertexSize >= 40) {
             vertices[i].weight        = ReadValue<float>   (bytes, base + 32);
             vertices[i].localVertexId = ReadValue<uint16_t>(bytes, base + 36);
             vertices[i].boneIndex     = ReadValue<uint16_t>(bytes, base + 38);
@@ -448,6 +488,63 @@ std::vector<std::array<uint32_t, 3>> ParseSplitBoneTriangles(
 
         if (triangles.size() > blockTriangleStart) {
             outBlocks.push_back({ blockTriangleStart, triangles.size() - blockTriangleStart, materialSlot, 1.0f });
+        }
+    }
+
+    outBlockCount = outBlocks.size();
+    return triangles;
+}
+
+std::vector<std::array<uint32_t, 3>> ParseIgi2EcafDner(
+    const std::vector<uint8_t>& bytes,
+    const ChunkInfo& dnerChunk,
+    const ChunkInfo& ecafChunk,
+    uint32_t modelType,
+    std::vector<ParsedGeometry::RenderBlock>& outBlocks,
+    size_t& outBlockCount)
+{
+    // IGI 2: every model type stores faces in ECAF. DNER is a table of
+    // fixed records. Type 3 is 28 bytes; type 0/1 are 32.
+    // index_offset @+16 (uint16 indices), face_count @+18, material td @+24.
+    size_t recSize = (modelType == 3) ? 28u : 32u;
+    if (recSize == 32 && (dnerChunk.size % 32) != 0 && (dnerChunk.size % 28) == 0) {
+        recSize = 28;
+    }
+    if (recSize == 0 || (dnerChunk.size % recSize) != 0) {
+        return {};
+    }
+
+    const size_t count = dnerChunk.size / recSize;
+    const size_t totalIndices = ecafChunk.size / sizeof(uint16_t);
+    std::vector<std::array<uint32_t, 3>> triangles;
+    outBlocks.clear();
+
+    for (size_t i = 0; i < count; ++i) {
+        const size_t base = dnerChunk.data + i * recSize;
+        const uint16_t indexOffset = ReadValue<uint16_t>(bytes, base + 16);
+        const uint16_t faceCount   = ReadValue<uint16_t>(bytes, base + 18);
+        const int16_t  td          = (recSize >= 26)
+            ? ReadValue<int16_t>(bytes, base + 24)
+            : static_cast<int16_t>(i);
+        const size_t start = triangles.size();
+        for (uint16_t tri = 0; tri < faceCount; ++tri) {
+            const size_t first = static_cast<size_t>(indexOffset) + static_cast<size_t>(tri) * 3u;
+            if (first + 2 >= totalIndices) {
+                break;
+            }
+            const size_t ib = ecafChunk.data + first * sizeof(uint16_t);
+            const uint16_t a = ReadValue<uint16_t>(bytes, ib + 0);
+            const uint16_t b = ReadValue<uint16_t>(bytes, ib + 2);
+            const uint16_t c = ReadValue<uint16_t>(bytes, ib + 4);
+            triangles.push_back({
+                static_cast<uint32_t>(a),
+                static_cast<uint32_t>(b),
+                static_cast<uint32_t>(c)
+            });
+        }
+        if (triangles.size() > start) {
+            const int slot = (td >= 0) ? static_cast<int>(td) : static_cast<int>(i);
+            outBlocks.push_back({ start, triangles.size() - start, slot, 1.0f });
         }
     }
 
@@ -793,7 +890,9 @@ ParsedGeometry ParseMefGeometry(const std::vector<uint8_t>& bytes, const std::ve
     ParsedGeometry geometry;
     const ChunkInfo* hsem = FindChunk(chunks, "HSEM");
     const bool isIgi1 = hsem && (hsem->size == 156);
+    const bool isIgi2 = DetectIgi2(bytes, hsem);
     geometry.isIgi1 = isIgi1;
+    geometry.isIgi2 = isIgi2;
 
     const uint32_t modelType = ReadModelType(bytes, chunks);
     geometry.modelType = modelType;
@@ -804,7 +903,8 @@ ParsedGeometry ParseMefGeometry(const std::vector<uint8_t>& bytes, const std::ve
     const ChunkInfo* ecaf = FindChunk(chunks, "ECAF");
 
     if (xtrv && dner) {
-        geometry.vertices = ParseRenderVertices(bytes, *xtrv, modelType);
+        geometry.xtrvStride = DetectXtrvStride(modelType, xtrv->size, ReadHsemVertCount(bytes, chunks));
+        geometry.vertices = ParseRenderVertices(bytes, *xtrv, modelType, geometry.xtrvStride);
 
         if (modelType == 1) {
             if (isIgi1) {
@@ -841,7 +941,16 @@ ParsedGeometry ParseMefGeometry(const std::vector<uint8_t>& bytes, const std::ve
             }
         }
 
-        if (modelType == 1 && ecaf && d3drInfo.valid && d3drInfo.numMeshes > 0) {
+        if (isIgi2 && ecaf) {
+            geometry.triangles = ParseIgi2EcafDner(
+                bytes, *dner, *ecaf, modelType, geometry.renderBlocks, geometry.renderBlockCount);
+            geometry.renderLayout = "igi2 ECAF/DNER type" + std::to_string(modelType);
+            if (geometry.triangles.empty()) {
+                geometry.triangles = ParsePackedRenderTriangles(
+                    bytes, *dner, modelType, geometry.renderBlocks, geometry.renderBlockCount);
+                geometry.renderLayout = "packed DNER (igi2 fallback)";
+            }
+        } else if (modelType == 1 && ecaf && d3drInfo.valid && d3drInfo.numMeshes > 0) {
             geometry.triangles = ParseSplitBoneTriangles(bytes, *dner, *ecaf, d3drInfo, geometry.renderBlocks, geometry.renderBlockCount);
             geometry.renderLayout = "type1 split ECAF/DNER";
             if (geometry.triangles.empty()) {
@@ -1078,10 +1187,9 @@ std::vector<glm::vec3> ComputeBoneWorldPositions(const std::vector<BoneInfo>& bo
     return worldPos;
 }
 
-ParsedGeometry ParseMefFile(const std::string& filepath) {
-    const std::vector<uint8_t> bytes  = ReadWholeFile(filepath);
-    const std::vector<ChunkInfo> chunks = ParseIlffChunks(bytes, filepath);
-    ParsedGeometry geo = ParseMefGeometry(bytes, chunks, filepath);
+ParsedGeometry ParseMefBytes(const std::vector<uint8_t>& bytes, const std::string& name) {
+    const std::vector<ChunkInfo> chunks = ParseIlffChunks(bytes, name);
+    ParsedGeometry geo = ParseMefGeometry(bytes, chunks, name);
 
     // Store all chunks verbatim so round-trip via sidecar is lossless.
     geo.rawChunks.reserve(chunks.size());
@@ -1093,5 +1201,9 @@ ParsedGeometry ParseMefFile(const std::string& filepath) {
         geo.rawChunks.push_back(std::move(rc));
     }
     return geo;
+}
+
+ParsedGeometry ParseMefFile(const std::string& filepath) {
+    return ParseMefBytes(ReadWholeFile(filepath), filepath);
 }
 

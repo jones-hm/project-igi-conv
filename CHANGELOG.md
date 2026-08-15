@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Fixed
+- **IGI 2 MEF type 0 and type 3** no longer fall back to collision meshes.
+  IGI 2 files use ILFF format id `OCEM` and HSEM size 176. Type 3 vertices
+  are 28 bytes (`pos + uv0 + uv1`, no normals). Faces for **all** IGI 2
+  model types live in `ECAF` with fixed-size `DNER` records (`index_offset`
+  at +16, `face_count` at +18). IGI 1 packed-DNER and type-1 split paths
+  are unchanged.
+
 ## [1.10.0] - 2026-06-24
 
 ### Added
