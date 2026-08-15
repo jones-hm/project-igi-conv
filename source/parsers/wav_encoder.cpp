@@ -9,7 +9,7 @@
 #include <string>
 #include <fstream>
 
-// IMA ADPCM step table
+// IMA ADPCM step table (89 entries)
 static const int step_table[89] = {
     7, 8, 9, 10, 11, 12, 13, 14, 16, 17,
     19, 21, 23, 25, 28, 31, 34, 37, 41, 45,
@@ -19,9 +19,7 @@ static const int step_table[89] = {
     876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066,
     2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358,
     5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899,
-    15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32777, 36055,
-    39660, 43627, 47990, 52789, 58068, 63875, 70262, 77288, 85018, 93520,
-    102872, 113160, 124476, 136924, 149616, 164578, 181036, 199139, 219053, 240958
+    15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767
 };
 
 // IMA ADPCM index adjustment table
@@ -56,24 +54,68 @@ int encode_adpcm(const std::string& input_path, const std::string& output_path) 
         return 1;
     }
 
-    // Read PCM data (simplified - assumes PCM WAV input)
-    infile.seekg(0, std::ios::end);
-    size_t pcm_size = infile.tellg();
-    infile.seekg(0, std::ios::beg);
+    // Parse RIFF header
+    struct RiffHeader {
+        char riff[4];
+        uint32_t file_size;
+        char wave[4];
+    } riff;
     
-    std::vector<uint8_t> pcm_data(pcm_size);
-    infile.read(reinterpret_cast<char*>(pcm_data.data()), pcm_size);
+    if (!infile.read(reinterpret_cast<char*>(&riff), sizeof(riff))) {
+        fprintf(stderr, "Error: Failed to read RIFF header\n");
+        return 1;
+    }
+    
+    if (memcmp(riff.riff, "RIFF", 4) != 0 || memcmp(riff.wave, "WAVE", 4) != 0) {
+        fprintf(stderr, "Error: Not a valid WAV file\n");
+        return 1;
+    }
+
+    // Parse fmt chunk
+    uint16_t channels = 1;
+    uint32_t sample_rate = 22050;
+    uint16_t bits_per_sample = 16;
+    
+    char chunk_id[4];
+    uint32_t chunk_size;
+    
+    while (infile.read(chunk_id, 4) && infile.read(reinterpret_cast<char*>(&chunk_size), 4)) {
+        if (memcmp(chunk_id, "fmt ", 4) == 0) {
+            // Read fmt chunk data
+            uint16_t format_tag;
+            infile.read(reinterpret_cast<char*>(&format_tag), 2);
+            infile.read(reinterpret_cast<char*>(&channels), 2);
+            infile.read(reinterpret_cast<char*>(&sample_rate), 4);
+            infile.seekg(6, std::ios::cur); // Skip avg bytes/sec and block align
+            infile.read(reinterpret_cast<char*>(&bits_per_sample), 2);
+            if (chunk_size > 16) infile.seekg(chunk_size - 16, std::ios::cur);
+        } else if (memcmp(chunk_id, "data", 4) == 0) {
+            // Found data chunk
+            break;
+        } else {
+            // Skip unknown chunks
+            infile.seekg(chunk_size, std::ios::cur);
+        }
+    }
+    
+    // Read PCM data
+    std::vector<uint8_t> pcm_data(chunk_size);
+    if (!infile.read(reinterpret_cast<char*>(pcm_data.data()), chunk_size)) {
+        fprintf(stderr, "Error: Failed to read PCM data\n");
+        return 1;
+    }
     infile.close();
 
     // Encode to IMA ADPCM
     int predictor = 0;
     int step_index = 0;
     
-    size_t adpcm_size = pcm_size / 2;
-    std::vector<uint8_t> adpcm_data(adpcm_size);
+    size_t sample_count = chunk_size / (bits_per_sample / 8);
+    size_t adpcm_size = (sample_count + 1) / 2;
+    std::vector<uint8_t> adpcm_data(adpcm_size, 0);
     
-    for (size_t i = 0, j = 0; i < pcm_size && j < adpcm_size; i += 2, j++) {
-        int sample = (int16_t)(pcm_data[i] | (pcm_data[i+1] << 8));
+    for (size_t i = 0, j = 0; i + 1 < sample_count && j < adpcm_size; i++, j++) {
+        int16_t sample = (int16_t)(pcm_data[i * 2] | (pcm_data[i * 2 + 1] << 8));
         int step = step_table[step_index];
         int diff = sample - predictor;
         
@@ -105,9 +147,9 @@ int encode_adpcm(const std::string& input_path, const std::string& output_path) 
         if (step_index < 0) step_index = 0;
         if (step_index > 88) step_index = 88;
         
-        // Pack nibble (stereo interleaved if needed)
-        if (j % 2 == 0) adpcm_data[j/2] = (nibble << 4);
-        else adpcm_data[j/2] |= nibble;
+        // Pack nibble (two samples per byte)
+        if (j % 2 == 0) adpcm_data[j / 2] = (nibble << 4);
+        else adpcm_data[j / 2] |= nibble;
     }
 
     // Write IGI WAV output
@@ -117,22 +159,29 @@ int encode_adpcm(const std::string& input_path, const std::string& output_path) 
         return 1;
     }
 
-    // Build header
+    // Build header from parsed input
     WavHeader header;
-    header.channels = 1;
-    header.samples_per_sec = 22050;
+    header.channels = channels;
+    header.samples_per_sec = sample_rate;
     header.bits_per_sample = 4;
     header.block_align = 0x200;
-    header.avg_bytes_per_sec = header.samples_per_sec * header.block_align / header.bits_per_sample;
+    header.avg_bytes_per_sec = sample_rate * header.block_align / 4;
     header.data_size = (uint32_t)adpcm_data.size();
     header.file_size = header.data_size + sizeof(WavHeader) - 8;
 
     outfile.write(reinterpret_cast<char*>(&header), sizeof(header));
     outfile.write(reinterpret_cast<char*>(adpcm_data.data()), adpcm_data.size());
+    
+    if (!outfile.good()) {
+        fprintf(stderr, "Error: Failed to write output file\n");
+        outfile.close();
+        return 1;
+    }
+    
     outfile.close();
-
-    printf("Encoded %s -> %s (%zu bytes PCM -> %zu bytes ADPCM)\n",
-           input_path.c_str(), output_path.c_str(), pcm_size, adpcm_data.size());
+    
+    printf("Encoded %s -> %s (%zu samples, %zu bytes ADPCM)\n",
+           input_path.c_str(), output_path.c_str(), sample_count, adpcm_data.size());
     return 0;
 }
 

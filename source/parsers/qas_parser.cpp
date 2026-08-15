@@ -64,14 +64,25 @@ int decompile_qas(const std::string& input_path, const std::string& output_path)
     }
 
     infile.seekg(0, std::ios::end);
-    size_t size = infile.tellg();
+    std::streamsize size = infile.tellg();
     infile.seekg(0, std::ios::beg);
     
-    std::vector<uint8_t> data(size);
-    infile.read(reinterpret_cast<char*>(data.data()), size);
+    // Validate input size
+    if (size <= 0 || size > 1024 * 1024) {
+        fprintf(stderr, "Error: Invalid file size %zd\n", size);
+        return 1;
+    }
+    
+    std::vector<uint8_t> data(static_cast<size_t>(size));
+    if (!infile.read(reinterpret_cast<char*>(data.data()), size)) {
+        fprintf(stderr, "Error: Failed to read file\n");
+        return 1;
+    }
     infile.close();
 
-    FILE* out = fopen(output_path.c_str(), "w");
+    // Write to temporary file first (atomic write)
+    std::string tmp_path = output_path + ".tmp";
+    FILE* out = fopen(tmp_path.c_str(), "w");
     if (!out) {
         fprintf(stderr, "Error: Cannot create output file %s\n", output_path.c_str());
         return 1;
@@ -81,7 +92,9 @@ int decompile_qas(const std::string& input_path, const std::string& output_path)
     fprintf(out, "; Source: %s\n\n", input_path.c_str());
 
     size_t pos = 0;
-    while (pos < size) {
+    size_t data_size = data.size();
+    
+    while (pos < data_size) {
         uint8_t op = data[pos];
         fprintf(out, "%04zu  %s", pos, qas_op_name(op));
         
@@ -90,7 +103,7 @@ int decompile_qas(const std::string& input_path, const std::string& output_path)
             case QASOp::MOVE_TO:
             case QASOp::RUN_TO:
             case QASOp::FIRE_AT:
-                if (pos + 5 <= size) {
+                if (pos + 5 <= data_size) {
                     uint32_t x = data[pos+1] | (data[pos+2] << 8);
                     uint32_t y = data[pos+3] | (data[pos+4] << 8);
                     fprintf(out, "  (%u, %u)", x, y);
@@ -98,7 +111,7 @@ int decompile_qas(const std::string& input_path, const std::string& output_path)
                 } else { pos++; }
                 break;
             case QASOp::PATROL:
-                if (pos + 3 <= size) {
+                if (pos + 3 <= data_size) {
                     uint16_t start = data[pos+1] | (data[pos+2] << 8);
                     fprintf(out, "  start_node=%u", start);
                     pos += 3;
@@ -106,7 +119,7 @@ int decompile_qas(const std::string& input_path, const std::string& output_path)
                 break;
             case QASOp::PLAY_ANIM:
             case QASOp::PLAY_SOUND:
-                if (pos + 2 <= size) {
+                if (pos + 2 <= data_size) {
                     fprintf(out, "  id=%u", data[pos+1]);
                     pos += 2;
                 } else { pos++; }
@@ -117,8 +130,19 @@ int decompile_qas(const std::string& input_path, const std::string& output_path)
         }
         fprintf(out, "\n");
     }
-
+    
+    if (ferror(out)) {
+        fprintf(stderr, "Error: Write failed\n");
+        fclose(out);
+        std::remove(tmp_path.c_str());
+        return 1;
+    }
+    
     fclose(out);
+    
+    // Rename temporary file to final output
+    std::rename(tmp_path.c_str(), output_path.c_str());
+    
     printf("Decompiled %s -> %s\n", input_path.c_str(), output_path.c_str());
     return 0;
 }
