@@ -63,10 +63,12 @@ TEST(McpOperations, FindsRegisteredOperationByStableName) {
     ASSERT_NE(operation, nullptr);
     EXPECT_EQ(operation->commandPrefix, (std::vector<std::string>{"qsc", "edit-object"}));
     EXPECT_TRUE(operation->writesGame);
-    EXPECT_EQ(igi1conv::FindGameOperation("graph.md")->commandPrefix,
-              (std::vector<std::string>{"graph", "md"}));
+    const auto* graph = igi1conv::FindGameOperation("graph.md");
+    ASSERT_NE(graph, nullptr);
+    EXPECT_EQ(graph->commandPrefix, (std::vector<std::string>{"graph", "md"}));
     EXPECT_EQ(igi1conv::FindGameOperation("iff.export-gif"), nullptr);
-    EXPECT_EQ(igi1conv::FindGameOperation("mtp.sync")->commandPrefix,
-              (std::vector<std::string>{"mtp", "sync"}));
+    const auto* mtp = igi1conv::FindGameOperation("mtp.sync");
+    ASSERT_NE(mtp, nullptr);
+    EXPECT_EQ(mtp->commandPrefix, (std::vector<std::string>{"mtp", "sync"}));
     EXPECT_EQ(igi1conv::FindGameOperation("settings.theme"), nullptr);
 }

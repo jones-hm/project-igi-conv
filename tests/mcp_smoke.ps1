@@ -80,8 +80,9 @@ try {
     $stdio.StandardInput.WriteLine((Json-Line $call))
     $stdio.StandardInput.WriteLine((Json-Line $objectCall))
     $stdio.StandardInput.Close()
+    $stderrTask = $stdio.StandardError.ReadToEndAsync()
     $stdout = $stdio.StandardOutput.ReadToEnd()
-    $stderr = $stdio.StandardError.ReadToEnd()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
     $stdio.WaitForExit()
     Assert-Condition ($stdio.ExitCode -eq 0) "stdio server failed: $stderr"
     $responses = @($stdout -split "`r?`n" | Where-Object { $_.Length -gt 0 } | ForEach-Object { $_ | ConvertFrom-Json })
@@ -120,6 +121,34 @@ try {
     $httpJson = $httpResponse.Content | ConvertFrom-Json
     Assert-Condition ($httpResponse.StatusCode -eq 200) "HTTP status was $($httpResponse.StatusCode)"
     Assert-Condition ($httpJson.result.serverInfo.name -eq "igi1conv") "HTTP MCP response was not initialize"
+
+    $preflightOrigin = "http://127.0.0.1:$HttpPort"
+    $preflightResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Options -Headers @{
+        Origin = $preflightOrigin
+        "Access-Control-Request-Method" = "POST"
+        "Access-Control-Request-Headers" = "content-type, accept, mcp-protocol-version"
+    } -UseBasicParsing
+    Assert-Condition ($preflightResponse.StatusCode -eq 204) "HTTP CORS preflight status was $($preflightResponse.StatusCode)"
+    $allowOrigin = [string]$preflightResponse.Headers["Access-Control-Allow-Origin"]
+    $allowMethods = [string]$preflightResponse.Headers["Access-Control-Allow-Methods"]
+    $allowHeaders = [string]$preflightResponse.Headers["Access-Control-Allow-Headers"]
+    Assert-Condition ($allowOrigin -eq $preflightOrigin) "HTTP CORS preflight omitted the allowed Origin"
+    Assert-Condition ($allowMethods.Contains("POST")) "HTTP CORS preflight omitted POST"
+    Assert-Condition ($allowHeaders.Contains("MCP-Protocol-Version")) "HTTP CORS preflight omitted MCP headers"
+
+    $invalidRequestResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = $preflightOrigin; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body "{}" -UseBasicParsing
+    $invalidRequestJson = $invalidRequestResponse.Content | ConvertFrom-Json
+    Assert-Condition ($invalidRequestResponse.StatusCode -eq 200) "HTTP malformed JSON-RPC status was $($invalidRequestResponse.StatusCode)"
+    Assert-Condition ($invalidRequestJson.error.code -eq -32600) "HTTP malformed id-less JSON-RPC request was not rejected"
+    Assert-Condition ($invalidRequestJson.id -eq $null) "HTTP malformed JSON-RPC error did not use a null id"
+
+    $rejectedPreflightResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Options -Headers @{
+        Origin = "http://evil.example"
+        "Access-Control-Request-Method" = "POST"
+    } -UseBasicParsing -SkipHttpErrorCheck
+    Assert-Condition ($rejectedPreflightResponse.StatusCode -eq 403) "invalid CORS preflight was accepted"
+    $rejectedAllowOrigin = [string]$rejectedPreflightResponse.Headers["Access-Control-Allow-Origin"]
+    Assert-Condition ([string]::IsNullOrEmpty($rejectedAllowOrigin)) "rejected CORS preflight returned Allow-Origin"
 
     $httpToolsRequest = [ordered]@{ jsonrpc = "2.0"; id = 4; method = "tools/list" }
     $httpToolsResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body (Json-Line $httpToolsRequest) -UseBasicParsing
@@ -173,7 +202,9 @@ finally {
 
 # Remote binds must not start without authentication.
 $remote = Start-Child @("mcp", "--transport", "http", "--host", "0.0.0.0", "--port", ([string]($HttpPort + 1)))
-$remoteError = $remote.StandardError.ReadToEnd()
+$remoteErrorTask = $remote.StandardError.ReadToEndAsync()
+$remoteOutput = $remote.StandardOutput.ReadToEnd()
+$remoteError = $remoteErrorTask.GetAwaiter().GetResult()
 $remote.WaitForExit()
 Assert-Condition ($remote.ExitCode -eq 1) "unauthenticated remote HTTP bind was accepted"
 Assert-Condition ($remoteError.Contains("requires --auth-token")) "remote bind rejection did not explain the authentication requirement"

@@ -8,6 +8,8 @@
 #include <fstream>
 #include <vector>
 #include <cstdint>
+#include <utility>
+#include <cstring>
 
 using namespace igi1conv_test;
 namespace fs = std::filesystem;
@@ -19,6 +21,24 @@ std::vector<uint8_t> ReadAll(const std::string& p) {
     std::ifstream f(p, std::ios::binary);
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
+
+// Corpus-backed recalc tests temporarily rewrite real .olm files. Keep the
+// restoration independent of ASSERT_* control flow so an early assertion
+// failure cannot leave the game corpus modified.
+struct RestoreFiles {
+    std::vector<std::pair<std::string, std::vector<uint8_t>>> files;
+
+    ~RestoreFiles() {
+        for (const auto& [path, bytes] : files) {
+            std::ofstream output(path, std::ios::binary | std::ios::trunc);
+            if (!output) continue;
+            if (!bytes.empty()) {
+                output.write(reinterpret_cast<const char*>(bytes.data()),
+                             static_cast<std::streamsize>(bytes.size()));
+            }
+        }
+    }
+};
 
 // Pull the "resolution: WxH" line out of `olm info` output.
 bool OlmResolution(const std::string& olmPath, int& w, int& h) {
@@ -85,6 +105,29 @@ TEST(OlmWriter, FromPngMissingOutputFails) {
     EXPECT_EQ(RunIGI1Conv("olm from-png " + Q(png)), 1);
 }
 
+TEST(OlmWriter, RejectsTruncatedOversizedPixelPayload) {
+    TempDir tmp;
+    std::string malformed = tmp / "truncated.olm";
+
+    // The packed OLM header is 88 bytes and the layer descriptor is 16 bytes;
+    // write only those structures while advertising a 65535x65535 payload.
+    std::vector<uint8_t> bytes(88 + 16, 0);
+    const float version = 0.12f;
+    const uint16_t dimension = 65535;
+    std::memcpy(bytes.data(), &version, sizeof(version));
+    std::memcpy(bytes.data() + 88 + 12, &dimension, sizeof(dimension));
+    std::memcpy(bytes.data() + 88 + 14, &dimension, sizeof(dimension));
+    std::ofstream output(malformed, std::ios::binary | std::ios::trunc);
+    ASSERT_TRUE(output.is_open());
+    output.write(reinterpret_cast<const char*>(bytes.data()),
+                 static_cast<std::streamsize>(bytes.size()));
+    output.close();
+
+    std::string outputText;
+    EXPECT_EQ(RunIGI1Conv("olm info " + Q(malformed), &outputText), 3);
+    EXPECT_NE(outputText.find("pixel"), std::string::npos);
+}
+
 // ─── res repack (name-preserving write-back) ────────────────────────────────
 
 // repack with an unpacked dir that contains every original entry (matched by
@@ -103,6 +146,19 @@ TEST(ResRepack, IdentityRoundTripIsByteIdentical) {
     ASSERT_TRUE(NonEmptyFile(repacked));
     EXPECT_EQ(GetFileSHA256(res), GetFileSHA256(repacked))
         << "identity repack should reproduce the source .res byte-for-byte";
+}
+
+TEST(ResRepack, RejectsUnmatchedDirectoryFiles) {
+    IGI1CONV_NEED(res, "lightmaps\\.res$");
+    TempDir tmp;
+    std::string inputDir = tmp / "unpack";
+    std::string output = tmp / "rejected.res";
+    fs::create_directories(inputDir);
+    std::string extra = inputDir + "\\mcp-unmatched-file.bin";
+    std::ofstream(extra, std::ios::binary).put('x');
+
+    EXPECT_EQ(RunIGI1Conv("res repack " + Q(res) + " " + Q(inputDir) + " -o " + Q(output)), 3);
+    EXPECT_FALSE(fs::exists(output));
 }
 
 // ─── lightmap recalc ────────────────────────────────────────────────────────
@@ -175,6 +231,10 @@ TEST(LightmapRecalc, IdentityRotationLeavesOlmUnchanged) {
         }
     }
     ASSERT_FALSE(olmPaths.empty());
+    RestoreFiles restore;
+    for (const auto& path : olmPaths) {
+        restore.files.emplace_back(path, ReadAll(path));
+    }
     TempDir tmp;
     // Snapshot each resolved .olm's PIXEL payload (via PNG export) before recalc.
     // Comparing PNGs isolates pixel equality from any header/trailing-byte

@@ -30,6 +30,16 @@ It returns JSON responses for request/response calls and mirrors the negotiated
 `MCP-Protocol-Version`. The default bind is loopback. Non-loopback binds
 require an explicit token:
 
+Browser clients may send an `OPTIONS` preflight to `/mcp`. An allowed Origin
+receives `204 No Content` with `Access-Control-Allow-Methods: POST, OPTIONS`
+and the MCP/auth request headers; rejected Origins receive no CORS allow
+headers. The preflight does not bypass the token requirement for the actual
+`POST` request.
+
+Malformed JSON-RPC request objects receive an error response with `id: null`;
+valid notifications remain response-free. HTTP headers and bodies are bounded
+by the server message limit before additional bytes are read.
+
 The current server protocol revision is `2025-11-25`; older supported client
 revisions are negotiated during `initialize`.
 
@@ -144,7 +154,10 @@ argument semantics are not guessed.
 the server restores the process directory before returning the result, including
 failed command paths. Stdio input is bounded before allocation. QSC object and
 lightmap scans treat block comments as trivia, and `lightmap.recalc` stages all
-updated `.olm` files before committing them as one transaction.
+updated `.olm` files before committing them as one transaction. Recalculation
+requires the number of resolved `.olm` files to match the MEF render-block
+count, and `res repack` refuses to write an archive when a supplied directory
+file matches no archive entry.
 
 The common game placement fields map to direct arguments as follows:
 

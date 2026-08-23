@@ -154,7 +154,9 @@ igi1conv mcp --transport http --host 127.0.0.1 --port 8765
 
 HTTP validates `Origin`. A non-loopback bind is refused unless an explicit
 `--auth-token` is supplied; use `--origin` to provide an explicit Origin
-allowlist. The MCP endpoint is `/mcp` by default.
+allowlist. Browser clients can use the authenticated `OPTIONS` preflight;
+allowed Origins receive only the documented POST/OPTIONS and MCP/auth header
+permissions. The MCP endpoint is `/mcp` by default.
 
 The server advertises two game-facing tools: `igi_game_command` (all entries
 discovered from `tools/list`, such as `tex.info`, `mef.compile`, `res.repack`,
@@ -167,7 +169,9 @@ and trigger data. Named placement fields are restricted to the known
 write requires an explicit output file. Stdio frames are size-bounded, QSC
 comment scanning is lexical, and `lightmap.recalc` stages all `.olm` outputs
 before committing them so one bad file does not intentionally produce a partial
-game-asset edit.
+game-asset edit; it also rejects render-block/`.olm` count mismatches. OLM
+creation rejects PNG dimensions that cannot be represented by the game format,
+and `res repack` refuses unmatched directory files before writing an archive.
 
 For the complete MCP contract, operation registry, JSON examples, result
 format, and excluded editor-only surfaces, see [docs/mcp.md](docs/mcp.md).

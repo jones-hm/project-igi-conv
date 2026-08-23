@@ -6,6 +6,8 @@
 #include <fstream>
 #include <vector>
 #include <cstring>
+#include <limits>
+#include <new>
 
 namespace fs = std::filesystem;
 
@@ -52,10 +54,40 @@ OLMFile ParseOlm(const std::string& path) {
         return olm;
     }
 
-    uint32_t numPixels = olm.layer.pixel_width * olm.layer.pixel_height;
-    olm.pixels.resize(numPixels);
-    file.read(reinterpret_cast<char*>(olm.pixels.data()), numPixels * sizeof(OlmPixel));
-    if (file.gcount() != numPixels * sizeof(OlmPixel)) {
+    if (olm.layer.pixel_width == 0 || olm.layer.pixel_height == 0) {
+        olm.error = "Invalid zero-sized lightmap";
+        return olm;
+    }
+
+    const uint64_t numPixels = static_cast<uint64_t>(olm.layer.pixel_width)
+        * static_cast<uint64_t>(olm.layer.pixel_height);
+    const uint64_t pixelBytes = numPixels * sizeof(OlmPixel);
+    constexpr uint64_t kMaxPixelBytes = 256ull * 1024ull * 1024ull;
+    if (pixelBytes > kMaxPixelBytes
+        || numPixels > std::numeric_limits<size_t>::max()
+        || pixelBytes > static_cast<uint64_t>(std::numeric_limits<std::streamsize>::max())) {
+        olm.error = "Lightmap pixel payload is too large";
+        return olm;
+    }
+
+    const std::streampos payloadStart = file.tellg();
+    std::error_code fileSizeError;
+    const uintmax_t fileSize = fs::file_size(path, fileSizeError);
+    if (payloadStart < 0 || fileSizeError
+        || static_cast<uintmax_t>(payloadStart) > fileSize
+        || pixelBytes > fileSize - static_cast<uintmax_t>(payloadStart)) {
+        olm.error = "Truncated lightmap pixel data";
+        return olm;
+    }
+
+    try {
+        olm.pixels.resize(static_cast<size_t>(numPixels));
+    } catch (const std::bad_alloc&) {
+        olm.error = "Unable to allocate lightmap pixel data";
+        return olm;
+    }
+    file.read(reinterpret_cast<char*>(olm.pixels.data()), static_cast<std::streamsize>(pixelBytes));
+    if (file.gcount() != static_cast<std::streamsize>(pixelBytes)) {
         olm.error = "Failed to read pixel data";
         return olm;
     }
@@ -180,6 +212,14 @@ static int do_olm_from_png(const std::string& input, const std::string& outpath,
     unsigned char* pixels = stbi_load(input.c_str(), &w, &h, &channels, 4);
     if (!pixels) {
         std::cerr << "olm: failed to read PNG: " << input << " (" << stbi_failure_reason() << ")\n";
+        return 3;
+    }
+    if (w <= 0 || h <= 0
+        || w > static_cast<int>(std::numeric_limits<uint16_t>::max())
+        || h > static_cast<int>(std::numeric_limits<uint16_t>::max())) {
+        std::cerr << "olm: PNG dimensions must be between 1 and 65535 pixels: "
+                  << w << "x" << h << "\n";
+        stbi_image_free(pixels);
         return 3;
     }
 

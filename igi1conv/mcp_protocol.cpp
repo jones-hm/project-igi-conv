@@ -16,6 +16,10 @@
 #include <string>
 #include <utility>
 
+#ifndef IGI1CONV_VERSION
+#define IGI1CONV_VERSION "1.11.0"
+#endif
+
 namespace igi1conv {
 namespace {
 
@@ -502,8 +506,11 @@ McpDispatcher::McpDispatcher(McpCommandExecutor executor)
 std::optional<QJsonObject> McpDispatcher::Handle(const QJsonObject& request) const {
     const bool hasId = request.contains("id");
     const QJsonValue id = hasId ? request.value("id") : QJsonValue(QJsonValue::Null);
-    const auto finish = [hasId](QJsonObject response) -> std::optional<QJsonObject> {
-        if (!hasId) return std::nullopt;
+    const bool validNotificationShape = !hasId
+        && request.value("jsonrpc").toString() == QStringLiteral("2.0")
+        && request.value("method").isString();
+    const auto finish = [hasId, validNotificationShape](QJsonObject response) -> std::optional<QJsonObject> {
+        if (!hasId && validNotificationShape) return std::nullopt;
         return response;
     };
 
@@ -540,7 +547,7 @@ std::optional<QJsonObject> McpDispatcher::Handle(const QJsonObject& request) con
         capabilities.insert("resources", QJsonObject{});
         QJsonObject serverInfo;
         serverInfo.insert("name", "igi1conv");
-        serverInfo.insert("version", "1.11.0");
+        serverInfo.insert("version", QString::fromUtf8(IGI1CONV_VERSION));
         QJsonObject result;
         result.insert("protocolVersion", negotiated);
         result.insert("capabilities", capabilities);

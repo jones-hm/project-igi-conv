@@ -41,7 +41,7 @@ static void print_lightmap_help()
         "          sun (L(N_new)/L(N_orig)), preserving the original shadow detail\n"
         "          while approximating the new orientation. Overwrites the .olm\n"
         "          files in lightmaps_unpacked; repack lightmaps.res separately\n"
-        "          (res pack) for the game to pick them up.\n"
+        "          (res repack) for the game to pick them up.\n"
         "\n"
         "Options:\n"
         "  --model <id>     Model id / .mef filename stem (e.g. 435_01_1)\n"
@@ -297,7 +297,13 @@ int do_lightmap_recalc(const RecalcArgs& args) {
         return args.ambient + args.sunColor * ndl;
     };
 
-    size_t blockCount = std::min(geo.renderBlocks.size(), olmFiles.size());
+    if (geo.renderBlocks.size() != olmFiles.size()) {
+        std::cerr << "lightmap: refusing recalc because render-block count ("
+                  << geo.renderBlocks.size() << ") does not match .olm count ("
+                  << olmFiles.size() << "); no lightmap files were changed\n";
+        return 3;
+    }
+    const size_t blockCount = geo.renderBlocks.size();
     struct PendingWrite {
         fs::path target;
         fs::path temporary;

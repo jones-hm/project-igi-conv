@@ -69,7 +69,20 @@ static bool write_file(const std::string& path, const std::string& source)
         return false;
     }
     f.flush();
+    if (!f.good()) {
+        std::cerr << "igi1conv qsc: flush failed for '" << path << "'\n";
+        f.close();
+        std::error_code cleanupError;
+        std::filesystem::remove(temporary, cleanupError);
+        return false;
+    }
     f.close();
+    if (f.fail()) {
+        std::cerr << "igi1conv qsc: close failed for '" << path << "'\n";
+        std::error_code cleanupError;
+        std::filesystem::remove(temporary, cleanupError);
+        return false;
+    }
 
     bool replaced = false;
 #ifdef _WIN32

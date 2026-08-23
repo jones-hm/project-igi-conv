@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <map>
 #include <iterator>
+#include <set>
 
 static void print_usage()
 {
@@ -312,6 +313,7 @@ int cmd_res(int argc, char** argv)
 
         std::vector<RESEntry> entries;
         int replaced = 0, kept = 0;
+        std::set<std::string> matchedNames;
         std::string err;
         bool ok = RES_ForEachEntry(orig_res,
             [&](const std::string& name, const uint8_t* data, size_t size) {
@@ -323,6 +325,7 @@ int cmd_res(int argc, char** argv)
                     std::ifstream ifs(it->second, std::ios::binary);
                     if (ifs) {
                         entry.data.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+                        matchedNames.insert(base);
                         ++replaced;
                     } else {
                         entry.data.assign(data, data + size); // fall back to original
@@ -337,6 +340,14 @@ int cmd_res(int argc, char** argv)
         if (!ok) {
             std::cerr << "res repack: failed to read " << orig_res << ": " << err << "\n";
             return 3;
+        }
+
+        for (const auto& file : byName) {
+            if (matchedNames.find(file.first) == matchedNames.end()) {
+                std::cerr << "res repack: no archive entry matches " << file.first
+                          << "; refusing to write output\n";
+                return 3;
+            }
         }
 
         std::string werr;

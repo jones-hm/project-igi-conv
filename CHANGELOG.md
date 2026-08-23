@@ -42,6 +42,19 @@ All notable changes to this project will be documented in this file.
   parse/write failures do not intentionally leave a partial edit set.
 - Scoped `working_directory` changes with restoration on failure and exception
   paths; made QSC object/lightmap scanning ignore block comments consistently.
+- Added bounded HTTP `OPTIONS` CORS preflight handling with explicit allowed
+  methods/headers and no CORS headers on rejected Origins.
+- Rejected lightmap recalculation when the MEF render-block and resolved `.olm`
+  counts differ; validated OLM payload sizes before allocation and PNG
+  dimensions before the OLM `uint16` cast.
+- Rejected unmatched directory files in `res repack`, checked QSC temporary-file
+  flush/close failures, and made the corpus identity test restore every touched
+  `.olm` file even when an assertion exits early.
+- Kept corpus-generated IFF reports in test temporary directories so live
+  integration tests do not require write access beside game assets.
+- Capped HTTP header/body reads to the configured message budget, returned
+  JSON-RPC `-32600` errors for malformed id-less objects, and sourced the MCP
+  server version from the build version definition.
 
 ## [1.11.0] - 2026-06-25
 

@@ -195,6 +195,11 @@ TEST(McpProtocol, HandlesNotificationsAndUnknownMethodsAccordingToJsonRpc) {
     const auto unknown = dispatcher.Handle(Request(9, "not-a-method"));
     ASSERT_TRUE(unknown.has_value());
     EXPECT_EQ(unknown->value("error").toObject().value("code").toInt(), -32601);
+
+    const auto malformed = dispatcher.Handle(QJsonObject{});
+    ASSERT_TRUE(malformed.has_value());
+    EXPECT_EQ(malformed->value("error").toObject().value("code").toInt(), -32600);
+    EXPECT_TRUE(malformed->value("id").isNull());
 }
 
 TEST(McpProtocol, RejectsWrongTypesForTypedGameObjectFields) {

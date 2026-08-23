@@ -144,8 +144,10 @@ QByteArray HttpProtocolVersion(const QMap<QByteArray, QByteArray>& headers,
 
 void WriteHttpResponse(QTcpSocket& socket, int status, const QByteArray& body,
                        const QByteArray& contentType, const QByteArray& origin = {},
-                       const QByteArray& protocolVersion = "2025-11-25") {
+                       const QByteArray& protocolVersion = "2025-11-25",
+                       bool preflight = false) {
     const QByteArray statusText = status == 200 ? "OK" : status == 202 ? "Accepted"
+        : status == 204 ? "No Content"
         : status == 400 ? "Bad Request" : status == 401 ? "Unauthorized"
         : status == 403 ? "Forbidden" : status == 404 ? "Not Found"
         : status == 405 ? "Method Not Allowed" : status == 413 ? "Payload Too Large"
@@ -160,6 +162,11 @@ void WriteHttpResponse(QTcpSocket& socket, int status, const QByteArray& body,
         response += "Access-Control-Allow-Origin: " + origin + "\r\n";
         response += "Vary: Origin\r\n";
     }
+    if (preflight) {
+        response += "Access-Control-Allow-Methods: POST, OPTIONS\r\n";
+        response += "Access-Control-Allow-Headers: Content-Type, Accept, MCP-Protocol-Version, Authorization, X-MCP-Auth-Token\r\n";
+        response += "Access-Control-Max-Age: 600\r\n";
+    }
     response += "\r\n";
     response += body;
     socket.write(response);
@@ -173,8 +180,24 @@ QByteArray ErrorBody(const QString& message) {
 }
 
 bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error) {
+    auto readAvailable = [&](qint64 maximum, const QString& failure) {
+        const qint64 available = socket.bytesAvailable();
+        const qint64 amount = std::min(available, maximum);
+        if (amount <= 0) {
+            error = failure;
+            return false;
+        }
+        const QByteArray chunk = socket.read(amount);
+        if (chunk.isEmpty()) {
+            error = failure;
+            return false;
+        }
+        request += chunk;
+        return true;
+    };
+
     while (request.indexOf("\r\n\r\n") < 0) {
-        if (request.size() > static_cast<int>(kMaxMessageBytes)) {
+        if (request.size() >= static_cast<int>(kMaxMessageBytes)) {
             error = QStringLiteral("HTTP headers are too large");
             return false;
         }
@@ -182,7 +205,8 @@ bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error) {
             error = QStringLiteral("timed out waiting for HTTP request");
             return false;
         }
-        request += socket.readAll();
+        const qint64 remaining = static_cast<qint64>(kMaxMessageBytes) - request.size();
+        if (!readAvailable(remaining, QStringLiteral("failed to read HTTP headers"))) return false;
     }
 
     const int headerEnd = request.indexOf("\r\n\r\n");
@@ -210,9 +234,10 @@ bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error) {
 
     bool ok = false;
     const QByteArray contentLengthHeader = HeaderValue(headers, "content-length");
-    const bool bodylessGet = requestLine.at(0) == "GET" && contentLengthHeader.isEmpty();
-    const int contentLength = bodylessGet ? 0 : contentLengthHeader.toInt(&ok);
-    if (!bodylessGet && (!ok || contentLength < 0
+    const bool bodylessRequest = (requestLine.at(0) == "GET" || requestLine.at(0) == "OPTIONS")
+        && contentLengthHeader.isEmpty();
+    const int contentLength = bodylessRequest ? 0 : contentLengthHeader.toInt(&ok);
+    if (!bodylessRequest && (!ok || contentLength < 0
                          || contentLength > static_cast<int>(kMaxMessageBytes))) {
         error = QStringLiteral("missing or invalid Content-Length");
         return false;
@@ -223,7 +248,8 @@ bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error) {
             error = QStringLiteral("timed out waiting for HTTP body");
             return false;
         }
-        request += socket.readAll();
+        const qint64 remaining = contentLength - (request.size() - bodyStart);
+        if (!readAvailable(remaining, QStringLiteral("failed to read HTTP body"))) return false;
     }
     request = request.left(bodyStart + contentLength);
     return true;
@@ -325,15 +351,20 @@ int RunMcpHttp(const McpDispatcher& dispatcher, const McpHttpOptions& options) {
             const bool authenticated = options.authToken.empty()
                 || authorization == expectedToken || tokenHeader == QByteArray::fromStdString(options.authToken);
 
-            if (requestLine.at(1) != QByteArray::fromStdString(options.endpoint)) {
-                WriteHttpResponse(*socket, 404, ErrorBody(QStringLiteral("MCP endpoint not found")),
-                                  "application/json", originAllowed ? origin : QByteArray{});
-            } else if (requestLine.at(0) != "POST") {
-                WriteHttpResponse(*socket, 405, ErrorBody(QStringLiteral("MCP endpoint requires POST")),
-                                  "application/json", originAllowed ? origin : QByteArray{});
-            } else if (!originAllowed) {
+            const QByteArray method = requestLine.at(0);
+            const bool endpointMatches = requestLine.at(1) == QByteArray::fromStdString(options.endpoint);
+            if (!originAllowed) {
                 WriteHttpResponse(*socket, 403, ErrorBody(QStringLiteral("Origin is not allowed")),
                                   "application/json");
+            } else if (!endpointMatches) {
+                WriteHttpResponse(*socket, 404, ErrorBody(QStringLiteral("MCP endpoint not found")),
+                                  "application/json", origin);
+            } else if (method == "OPTIONS") {
+                WriteHttpResponse(*socket, 204, {}, "application/json", origin,
+                                  "2025-11-25", true);
+            } else if (method != "POST") {
+                WriteHttpResponse(*socket, 405, ErrorBody(QStringLiteral("MCP endpoint requires POST")),
+                                  "application/json", origin);
             } else if (!authenticated) {
                 WriteHttpResponse(*socket, 401, ErrorBody(QStringLiteral("MCP authentication required")),
                                   "application/json", origin);
