@@ -255,6 +255,7 @@ QJsonObject ToolSchemaForObjectEdit() {
         {"bone_hierarchy", QJsonObject{{"type", "integer"}}},
         {"stand_animation", QJsonObject{{"type", "integer"}}},
         {"updates", QJsonObject{{"type", "array"}, {"items", updateItem}}},
+        {"working_directory", QJsonObject{{"type", "string"}}},
     };
     return QJsonObject{{"type", "object"}, {"properties", properties},
                        {"required", QJsonArray{"input_file", "output_file", "selector"}},
@@ -310,15 +311,24 @@ std::optional<QJsonObject> HandleGameCommand(const QJsonObject& arguments,
     return ResultResponse(id, ExecutionToolResult(executor(command, workingDirectory), command));
 }
 
-bool AddValueArg(const QJsonObject& arguments, const char* key, const char* option,
-                 std::vector<std::string>& command, QString& error) {
+bool AddNumberArg(const QJsonObject& arguments, const char* key, const char* option,
+                  std::vector<std::string>& command, QString& error, bool integer) {
     const QJsonValue raw = arguments.value(key);
     if (raw.isUndefined() || raw.isNull()) return true;
-    const QString value = NumberToString(raw);
-    if (value.isEmpty()) {
-        error = QStringLiteral("game object field must be a number, boolean, or string: ") + key;
+    if (!raw.isDouble()) {
+        error = QStringLiteral("game object field must be a finite number: ") + key;
         return false;
     }
+    const double number = raw.toDouble();
+    if (!std::isfinite(number) || (integer && std::floor(number) != number)
+        || (integer && (number < std::numeric_limits<int>::min()
+                        || number > std::numeric_limits<int>::max()))) {
+        error = integer
+            ? QStringLiteral("game object field must be a 32-bit integer: ") + key
+            : QStringLiteral("game object field must be a finite number: ") + key;
+        return false;
+    }
+    const QString value = NumberToString(raw);
     command.emplace_back(option);
     command.emplace_back(ToStdString(value));
     return true;
@@ -382,7 +392,7 @@ std::optional<QJsonObject> HandleGameObjectEdit(const QJsonObject& arguments,
         }
     }
 
-    if (!AddValueArg(arguments, "rotation", "--rotation", command, error))
+    if (!AddNumberArg(arguments, "rotation", "--rotation", command, error, false))
         return ResultResponse(id, ToolError(error));
 
     std::string modelId;
@@ -393,9 +403,9 @@ std::optional<QJsonObject> HandleGameObjectEdit(const QJsonObject& arguments,
         command.emplace_back(std::move(modelId));
     }
 
-    if (!AddValueArg(arguments, "team", "--team", command, error)
-        || !AddValueArg(arguments, "bone_hierarchy", "--bone-hierarchy", command, error)
-        || !AddValueArg(arguments, "stand_animation", "--stand-animation", command, error))
+    if (!AddNumberArg(arguments, "team", "--team", command, error, true)
+        || !AddNumberArg(arguments, "bone_hierarchy", "--bone-hierarchy", command, error, true)
+        || !AddNumberArg(arguments, "stand_animation", "--stand-animation", command, error, true))
         return ResultResponse(id, ToolError(error));
 
     const QJsonValue updatesValue = arguments.value("updates");

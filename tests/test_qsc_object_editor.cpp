@@ -103,6 +103,18 @@ TEST(QscObjectEditor, RejectsUnsafeMultiTokenLiterals) {
     EXPECT_NE(result.error.find("literal"), std::string::npos);
 }
 
+TEST(QscObjectEditor, RejectsNonFiniteNumericLiterals) {
+    igi1conv::QscTaskSelector selector;
+    selector.taskId = 401;
+    std::string output;
+
+    const auto result = igi1conv::EditQscTasks(kObjects, selector, {{3, "nan"}}, output);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(output, kObjects);
+    EXPECT_NE(result.error.find("literal"), std::string::npos);
+}
+
 TEST(QscObjectEditor, ExposesGamePlacementEditingThroughQscCli) {
     TempDir temp;
     const std::string input = temp / "objects.qsc";
@@ -157,4 +169,26 @@ TEST(QscObjectEditor, ExposesAnimationSelectionFieldsThroughQscCli) {
     const std::string source((std::istreambuf_iterator<char>(edited)),
                              std::istreambuf_iterator<char>());
     EXPECT_NE(source.find("\"soldier\", 1, 8, 9"), std::string::npos);
+}
+
+TEST(QscObjectEditor, RejectsInPlaceOutputWithoutChangingInput) {
+    TempDir temp;
+    const std::string input = temp / "objects.qsc";
+    {
+        std::ofstream file(input, std::ios::binary);
+        ASSERT_TRUE(file.is_open());
+        file << kObjects;
+    }
+
+    std::string commandOutput;
+    EXPECT_NE(RunIGI1Conv(
+        "qsc edit-object " + Q(input) + " -o " + Q(input)
+            + " --id 401 --set 3=99",
+        &commandOutput), 0);
+
+    std::ifstream unchanged(input, std::ios::binary);
+    ASSERT_TRUE(unchanged.is_open());
+    const std::string source((std::istreambuf_iterator<char>(unchanged)),
+                             std::istreambuf_iterator<char>());
+    EXPECT_EQ(source, kObjects);
 }

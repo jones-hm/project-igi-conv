@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
+#include <cmath>
 #include <cstdlib>
 #include <iomanip>
 #include <limits>
@@ -266,8 +267,9 @@ bool IsSafeLiteral(const std::string& raw) {
 
     char* end = nullptr;
     errno = 0;
-    std::strtod(raw.c_str(), &end);
-    return errno != ERANGE && end != raw.c_str() && *end == '\0';
+    const double value = std::strtod(raw.c_str(), &end);
+    return errno != ERANGE && std::isfinite(value)
+        && end != raw.c_str() && *end == '\0';
 }
 
 bool Matches(const QscTaskSelector& selector, const QscTaskSummary& task) {

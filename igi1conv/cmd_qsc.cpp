@@ -6,6 +6,7 @@
 #include "qvm_compiler.h"
 
 #include <charconv>
+#include <filesystem>
 #include <system_error>
 
 static void print_help_qsc()
@@ -354,6 +355,14 @@ static int do_edit_object(int argc, char** argv)
     }
     if (!selector.taskId.has_value() && selector.className.empty() && selector.objectName.empty()) {
         std::cerr << "igi1conv qsc edit-object: one selector (--id, --class, or --name) is required\n";
+        return 1;
+    }
+
+    std::error_code pathError;
+    if (std::filesystem::equivalent(std::filesystem::path(input),
+                                    std::filesystem::path(output), pathError)) {
+        std::cerr << "igi1conv qsc edit-object: input and output paths must differ; "
+                     "in-place editing is not supported\n";
         return 1;
     }
 

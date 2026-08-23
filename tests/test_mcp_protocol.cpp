@@ -55,6 +55,15 @@ TEST(McpProtocol, InitializesListsOnlyGameFacingToolsAndExposesCapabilities) {
     EXPECT_FALSE(toolListing.contains("viewer"));
     EXPECT_FALSE(toolListing.contains("camera"));
 
+    QJsonObject objectTool;
+    for (const auto& tool : toolArray) {
+        if (tool.toObject().value("name").toString() == "igi_game_object_edit")
+            objectTool = tool.toObject();
+    }
+    ASSERT_FALSE(objectTool.isEmpty());
+    EXPECT_TRUE(objectTool.value("inputSchema").toObject().value("properties")
+                    .toObject().contains("working_directory"));
+
     const auto resource = dispatcher.Handle(Request(3, "resources/read", [] {
         QJsonObject params;
         params.insert("uri", "igi1conv://game-capabilities");
@@ -174,4 +183,24 @@ TEST(McpProtocol, HandlesNotificationsAndUnknownMethodsAccordingToJsonRpc) {
     const auto unknown = dispatcher.Handle(Request(9, "not-a-method"));
     ASSERT_TRUE(unknown.has_value());
     EXPECT_EQ(unknown->value("error").toObject().value("code").toInt(), -32601);
+}
+
+TEST(McpProtocol, RejectsWrongTypesForTypedGameObjectFields) {
+    bool executed = false;
+    igi1conv::McpDispatcher dispatcher(
+        [&](const std::vector<std::string>&, const std::string&) {
+            executed = true;
+            return igi1conv::McpExecutionResult{0, "unexpected", ""};
+        });
+
+    QJsonObject arguments;
+    arguments.insert("input_file", "objects.qsc");
+    arguments.insert("output_file", "edited.qsc");
+    arguments.insert("selector", QJsonObject{{"task_id", 401}});
+    arguments.insert("rotation", "nan");
+    const auto response = dispatcher.Handle(ToolCall(10, "igi_game_object_edit", arguments));
+
+    ASSERT_TRUE(response.has_value());
+    EXPECT_TRUE(response->value("result").toObject().value("isError").toBool());
+    EXPECT_FALSE(executed);
 }

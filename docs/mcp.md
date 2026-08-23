@@ -126,6 +126,9 @@ Selectors can use `task_id`, `class_name`, and/or `object_name`. The combined
 selector must match exactly one `Task_New` call. Missing and ambiguous
 selectors fail before any output is written.
 
+`working_directory` is optional when the input and output paths are relative;
+the server restores the process directory before returning the result.
+
 The common game placement fields map to direct arguments as follows:
 
 | Field | `Task_New` index | Game effect |
