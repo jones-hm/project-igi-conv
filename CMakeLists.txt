@@ -41,6 +41,7 @@ list(APPEND IGI1CONV_SOURCES
     "igi1conv/mcp_operations.cpp"
     "igi1conv/mcp_protocol.cpp"
     "igi1conv/mcp_execution.cpp"
+    "igi1conv/mcp_transport.cpp"
 )
 list(REMOVE_DUPLICATES IGI1CONV_SOURCES)
 if (WIN32)
@@ -167,6 +168,7 @@ if (IGI1CONV_BUILD_TESTS)
     target_sources(igi1conv_tests PRIVATE
         igi1conv/mcp_operations.cpp
         igi1conv/mcp_protocol.cpp
+        igi1conv/mcp_transport.cpp
         source/parsers/qsc_object_editor.cpp
     )
 
