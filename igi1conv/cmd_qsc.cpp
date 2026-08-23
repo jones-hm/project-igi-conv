@@ -6,8 +6,13 @@
 #include "qvm_compiler.h"
 
 #include <charconv>
+#include <chrono>
 #include <filesystem>
 #include <system_error>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 static void print_help_qsc()
 {
@@ -47,7 +52,10 @@ static bool read_file(const std::string& path, std::string& out)
 
 static bool write_file(const std::string& path, const std::string& source)
 {
-    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    const std::filesystem::path target(path);
+    const std::filesystem::path temporary = target.string() + ".tmp-" + std::to_string(stamp);
+    std::ofstream f(temporary, std::ios::binary | std::ios::trunc);
     if (!f.is_open()) {
         std::cerr << "igi1conv qsc: cannot write '" << path << "'\n";
         return false;
@@ -55,6 +63,25 @@ static bool write_file(const std::string& path, const std::string& source)
     f.write(source.data(), static_cast<std::streamsize>(source.size()));
     if (!f.good()) {
         std::cerr << "igi1conv qsc: write failed for '" << path << "'\n";
+        f.close();
+        std::error_code cleanupError;
+        std::filesystem::remove(temporary, cleanupError);
+        return false;
+    }
+    f.flush();
+    f.close();
+
+    bool replaced = false;
+#ifdef _WIN32
+    replaced = MoveFileExW(temporary.wstring().c_str(), target.wstring().c_str(),
+                           MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    replaced = std::rename(temporary.string().c_str(), target.string().c_str()) == 0;
+#endif
+    if (!replaced) {
+        std::cerr << "igi1conv qsc: cannot replace '" << path << "' atomically\n";
+        std::error_code cleanupError;
+        std::filesystem::remove(temporary, cleanupError);
         return false;
     }
     return true;

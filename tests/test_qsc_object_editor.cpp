@@ -115,6 +115,22 @@ TEST(QscObjectEditor, RejectsNonFiniteNumericLiterals) {
     EXPECT_NE(result.error.find("literal"), std::string::npos);
 }
 
+TEST(QscObjectEditor, PreservesCommentsAfterEditedArgumentLiterals) {
+    const std::string source =
+        "Task_New(701, \"HumanSoldier\", \"Commented\", 10 /* keep x */, "
+        "20 // keep y\n, 30, 0.5, \"model\", 1, 2, 3);\n";
+    igi1conv::QscTaskSelector selector;
+    selector.taskId = 701;
+    std::string output;
+
+    const auto result = igi1conv::EditQscTasks(source, selector,
+                                                {{3, "100"}, {4, "200"}}, output);
+
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_NE(output.find("100 /* keep x */"), std::string::npos);
+    EXPECT_NE(output.find("200 // keep y"), std::string::npos);
+}
+
 TEST(QscObjectEditor, ExposesGamePlacementEditingThroughQscCli) {
     TempDir temp;
     const std::string input = temp / "objects.qsc";

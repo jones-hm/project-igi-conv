@@ -174,7 +174,9 @@ std::string BuildCapabilityText() {
 std::vector<std::string> OutputPaths(const std::vector<std::string>& command) {
     std::vector<std::string> result;
     for (std::size_t i = 0; i + 1 < command.size(); ++i) {
-        if ((command[i] == "-o" || command[i] == "--output") && !command[i + 1].empty())
+        if ((command[i] == "-o" || command[i] == "--output"
+             || command[i] == "--out" || command[i] == "-out")
+            && !command[i + 1].empty())
             result.push_back(command[i + 1]);
     }
     return result;
@@ -272,7 +274,7 @@ QJsonArray Tools() {
     QJsonObject objectEdit;
     objectEdit.insert("name", "igi_game_object_edit");
     objectEdit.insert("description",
-                      "List or edit game-facing QSC Task_New object data such as position, rotation, model, team, and task-specific parameters.");
+                      "Edit game-facing QSC Task_New object data such as position, rotation, model, team, and task-specific parameters.");
     objectEdit.insert("inputSchema", ToolSchemaForObjectEdit());
 
     return QJsonArray{command, objectEdit};
@@ -437,6 +439,15 @@ std::optional<QJsonObject> HandleGameObjectEdit(const QJsonObject& arguments,
 
 } // namespace
 
+bool IsSupportedMcpProtocolVersion(const QString& version) {
+    return IsSupportedProtocolVersion(version);
+}
+
+QString NegotiateMcpProtocolVersion(const QString& requested) {
+    return IsSupportedProtocolVersion(requested)
+        ? requested : QString::fromUtf8(kProtocolVersion);
+}
+
 McpDispatcher::McpDispatcher(McpCommandExecutor executor)
     : executor_(executor ? std::move(executor) : [](const std::vector<std::string>&,
                                                    const std::string&) {
@@ -465,10 +476,19 @@ std::optional<QJsonObject> McpDispatcher::Handle(const QJsonObject& request) con
         ? request.value("params").toObject() : QJsonObject{};
 
     if (method == QStringLiteral("initialize")) {
-        const QString requested = params.value("protocolVersion").isString()
-            ? params.value("protocolVersion").toString() : QString::fromUtf8(kProtocolVersion);
-        if (!IsSupportedProtocolVersion(requested))
-            return finish(ErrorResponse(id, -32602, QStringLiteral("unsupported protocol version: ") + requested));
+        const QJsonValue protocolVersion = params.value("protocolVersion");
+        const QJsonValue clientCapabilities = params.value("capabilities");
+        const QJsonValue clientInfoValue = params.value("clientInfo");
+        if (!protocolVersion.isString() || protocolVersion.toString().isEmpty()
+            || !clientCapabilities.isObject() || !clientInfoValue.isObject())
+            return finish(ErrorResponse(id, -32602,
+                                        QStringLiteral("initialize requires protocolVersion, capabilities, and clientInfo")));
+        const QJsonObject clientInfo = clientInfoValue.toObject();
+        if (!clientInfo.value("name").isString() || clientInfo.value("name").toString().isEmpty()
+            || !clientInfo.value("version").isString() || clientInfo.value("version").toString().isEmpty())
+            return finish(ErrorResponse(id, -32602,
+                                        QStringLiteral("initialize clientInfo requires non-empty name and version")));
+        const QString negotiated = NegotiateMcpProtocolVersion(protocolVersion.toString());
 
         QJsonObject capabilities;
         capabilities.insert("tools", QJsonObject{});
@@ -477,7 +497,7 @@ std::optional<QJsonObject> McpDispatcher::Handle(const QJsonObject& request) con
         serverInfo.insert("name", "igi1conv");
         serverInfo.insert("version", "1.11.0");
         QJsonObject result;
-        result.insert("protocolVersion", requested);
+        result.insert("protocolVersion", negotiated);
         result.insert("capabilities", capabilities);
         result.insert("serverInfo", serverInfo);
         result.insert("instructions", "Game-facing Project IGI asset editing only.");

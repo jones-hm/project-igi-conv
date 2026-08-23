@@ -24,10 +24,14 @@ Streamable HTTP is opt-in:
 igi1conv mcp --transport http --host 127.0.0.1 --port 8765 --endpoint /mcp
 ```
 
-The endpoint accepts `POST` requests with `Content-Type: application/json`.
-It returns `MCP-Protocol-Version: 2025-11-25` and JSON responses for request /
-response calls. The default bind is loopback. Non-loopback binds require an
-explicit token:
+The endpoint accepts `POST` requests with `Content-Type: application/json` and
+an `Accept` header containing both `application/json` and `text/event-stream`.
+It returns JSON responses for request/response calls and mirrors the negotiated
+`MCP-Protocol-Version`. The default bind is loopback. Non-loopback binds
+require an explicit token:
+
+The current server protocol revision is `2025-11-25`; older supported client
+revisions are negotiated during `initialize`.
 
 ```text
 igi1conv mcp --transport http --host 0.0.0.0 --port 8765 \
@@ -36,7 +40,9 @@ igi1conv mcp --transport http --host 0.0.0.0 --port 8765 \
 
 Never place a real token in source control or a shared command log. HTTP
 rejects an unrecognized `Origin`; clients without a browser Origin may omit
-the header. The server does not execute a shell and does not accept an
+the header. `initialize` requires `protocolVersion`, `capabilities`, and
+`clientInfo`; an unknown client version negotiates the newest version this
+server supports. The server does not execute a shell and does not accept an
 arbitrary executable path.
 
 ## Protocol discovery
@@ -106,7 +112,9 @@ constructing the command vector.
 ### `igi_game_object_edit`
 
 This tool writes a QSC source file through the same validated object editor as
-the CLI. The required fields are `input_file`, `output_file`, and a selector:
+the CLI. The required fields are `input_file`, `output_file`, and a selector.
+The input and output must be different paths; the output is written through a
+same-directory temporary file and atomically replaced after validation:
 
 ```json
 {
@@ -157,10 +165,11 @@ For task classes with additional semantics, use the generic `updates` array:
 }
 ```
 
-Literals are one safe QSC token: a number, `TRUE`/`FALSE`, or a quoted
+Literals are one safe QSC token: a finite number, `TRUE`/`FALSE`, or a quoted
 string. Commas, semicolons, newlines, malformed quotes, duplicate indexes,
-and out-of-range indexes are rejected. Nested calls, comments, escaped
-strings, and untouched source formatting are preserved.
+and out-of-range indexes are rejected. Nested calls, trailing comments,
+escaped strings, and untouched source formatting are preserved. Output paths
+from generic commands include `-o`, `--output`, `--out`, and `-out` forms.
 
 The equivalent CLI commands are:
 

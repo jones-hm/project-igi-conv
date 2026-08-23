@@ -24,6 +24,11 @@ TEST(McpTransport, StdioFramesResponsesAndKeepsDiagnosticsOffStdout) {
         });
     std::ostringstream input;
     QJsonObject initialize{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "initialize"}};
+    initialize.insert("params", QJsonObject{
+        {"protocolVersion", "2025-11-25"},
+        {"capabilities", QJsonObject{}},
+        {"clientInfo", QJsonObject{{"name", "stdio-test"}, {"version", "1"}}},
+    });
     QJsonObject notification{{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}};
     QJsonObject list{{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}};
     input << JsonLine(initialize) << '\n'

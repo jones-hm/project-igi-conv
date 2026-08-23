@@ -37,6 +37,7 @@ TEST(McpProtocol, InitializesListsOnlyGameFacingToolsAndExposesCapabilities) {
         QJsonObject params;
         params.insert("protocolVersion", "2025-11-25");
         params.insert("capabilities", QJsonObject{});
+        params.insert("clientInfo", QJsonObject{{"name", "test"}, {"version", "1"}});
         return params;
     }()));
     ASSERT_TRUE(initialize.has_value());
@@ -100,6 +101,17 @@ TEST(McpProtocol, ExecutesRegisteredGameCommandAndShapesStructuredResult) {
     EXPECT_EQ(result.value("structuredContent").toObject().value("exit_code").toInt(), 0);
     EXPECT_EQ(actualCommand, (std::vector<std::string>{"tex", "info", "level.tex"}));
     EXPECT_EQ(actualWorkingDirectory, "D:/game");
+
+    QJsonObject graphArguments;
+    graphArguments.insert("command", "graph.export");
+    graphArguments.insert("args", QJsonArray{"level.dat", "--out", "graph.json"});
+    const auto graphResponse = dispatcher.Handle(ToolCall(41, "igi_game_command", graphArguments));
+    ASSERT_TRUE(graphResponse.has_value());
+    const auto graphOutputPaths = graphResponse->value("result").toObject()
+                                      .value("structuredContent").toObject()
+                                      .value("output_paths").toArray();
+    ASSERT_EQ(graphOutputPaths.size(), 1);
+    EXPECT_EQ(graphOutputPaths.at(0).toString(), "graph.json");
 }
 
 TEST(McpProtocol, RejectsEditorOnlyCommandsAndMalformedToolArguments) {
@@ -203,4 +215,17 @@ TEST(McpProtocol, RejectsWrongTypesForTypedGameObjectFields) {
     ASSERT_TRUE(response.has_value());
     EXPECT_TRUE(response->value("result").toObject().value("isError").toBool());
     EXPECT_FALSE(executed);
+}
+
+TEST(McpProtocol, NegotiatesToSupportedVersionForNewerClient) {
+    igi1conv::McpDispatcher dispatcher;
+    QJsonObject params{
+        {"protocolVersion", "2099-01-01"},
+        {"capabilities", QJsonObject{}},
+        {"clientInfo", QJsonObject{{"name", "future-client"}, {"version", "1"}}},
+    };
+    const auto response = dispatcher.Handle(Request(11, "initialize", params));
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(response->value("result").toObject().value("protocolVersion").toString(),
+              "2025-11-25");
 }

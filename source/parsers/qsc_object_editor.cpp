@@ -153,10 +153,43 @@ bool ParseArguments(const std::string& source, std::size_t openParen,
             ++pos;
         }
 
-        while (end > begin && std::isspace(static_cast<unsigned char>(source[end - 1])))
-            --end;
-        if (begin < end)
-            arguments.push_back({begin, end});
+        // Keep trailing comments outside the replacement span. This lets a
+        // field edit replace only its literal while preserving annotations
+        // such as `10 /* spawn point */` or `10 // authored value`.
+        std::size_t literalEnd = end;
+        std::size_t scan = begin;
+        int literalDepth = 0;
+        while (scan < end) {
+            if (source[scan] == '"') {
+                scan = SkipString(source, scan);
+                continue;
+            }
+            if (source[scan] == '/' && scan + 1 < end && source[scan + 1] == '/') {
+                if (literalDepth == 0) literalEnd = scan;
+                break;
+            }
+            if (source[scan] == '/' && scan + 1 < end && source[scan + 1] == '*') {
+                const auto commentEnd = source.find("*/", scan + 2);
+                if (commentEnd == std::string::npos || commentEnd >= end) {
+                    error = "unmatched parenthesis: unterminated block comment";
+                    return false;
+                }
+                if (literalDepth == 0) {
+                    literalEnd = scan;
+                    break;
+                }
+                scan = commentEnd + 2;
+                continue;
+            }
+            if (source[scan] == '(') ++literalDepth;
+            else if (source[scan] == ')' && literalDepth > 0) --literalDepth;
+            ++scan;
+        }
+        while (literalEnd > begin
+               && std::isspace(static_cast<unsigned char>(source[literalEnd - 1])))
+            --literalEnd;
+        if (begin < literalEnd)
+            arguments.push_back({begin, literalEnd});
 
         pos = SkipTrivia(source, pos);
     }

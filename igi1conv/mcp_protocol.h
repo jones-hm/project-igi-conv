@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QJsonObject>
+#include <QString>
 
 #include <functional>
 #include <optional>
@@ -18,6 +19,9 @@ struct McpExecutionResult {
 using McpCommandExecutor = std::function<McpExecutionResult(
     const std::vector<std::string>& command,
     const std::string& workingDirectory)>;
+
+bool IsSupportedMcpProtocolVersion(const QString& version);
+QString NegotiateMcpProtocolVersion(const QString& requested);
 
 // Transport-neutral MCP JSON-RPC dispatcher.  It knows only the game-facing
 // operation registry and the QSC game-object contract; transport framing is

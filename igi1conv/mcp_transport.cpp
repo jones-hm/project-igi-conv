@@ -56,6 +56,17 @@ bool ReadJsonLine(const std::string& line, QJsonObject& request, QJsonObject& er
     return true;
 }
 
+bool AcceptsMediaType(const QByteArray& header, const QByteArray& mediaType) {
+    const QByteArray wanted = mediaType.toLower();
+    for (QByteArray value : header.toLower().split(',')) {
+        value = value.trimmed();
+        const int parameters = value.indexOf(';');
+        if (parameters >= 0) value = value.left(parameters).trimmed();
+        if (value == wanted) return true;
+    }
+    return false;
+}
+
 bool IsLoopbackAddress(const QHostAddress& address) {
     return address.isLoopback();
 }
@@ -90,8 +101,28 @@ QByteArray HeaderValue(const QMap<QByteArray, QByteArray>& headers, const char* 
     return headers.value(QByteArray(name).toLower()).trimmed();
 }
 
+QByteArray HttpProtocolVersion(const QMap<QByteArray, QByteArray>& headers,
+                               const QJsonObject& request, bool& valid) {
+    const QByteArray header = HeaderValue(headers, "mcp-protocol-version");
+    if (!header.isEmpty()) {
+        const QString version = QString::fromUtf8(header);
+        valid = IsSupportedMcpProtocolVersion(version);
+        return valid ? header : QByteArray{};
+    }
+
+    // The protocol permits a header-less initialization request. For older
+    // clients, subsequent header-less requests use the compatibility default.
+    if (request.value("method").toString() == QStringLiteral("initialize")) {
+        const QJsonObject params = request.value("params").toObject();
+        const QString requested = params.value("protocolVersion").toString();
+        return NegotiateMcpProtocolVersion(requested).toUtf8();
+    }
+    return QByteArray("2025-03-26");
+}
+
 void WriteHttpResponse(QTcpSocket& socket, int status, const QByteArray& body,
-                       const QByteArray& contentType, const QByteArray& origin = {}) {
+                       const QByteArray& contentType, const QByteArray& origin = {},
+                       const QByteArray& protocolVersion = "2025-11-25") {
     const QByteArray statusText = status == 200 ? "OK" : status == 202 ? "Accepted"
         : status == 400 ? "Bad Request" : status == 401 ? "Unauthorized"
         : status == 403 ? "Forbidden" : status == 404 ? "Not Found"
@@ -102,7 +133,7 @@ void WriteHttpResponse(QTcpSocket& socket, int status, const QByteArray& body,
     response += "Connection: close\r\n";
     response += "Content-Length: " + QByteArray::number(body.size()) + "\r\n";
     response += "Content-Type: " + contentType + "\r\n";
-    response += "MCP-Protocol-Version: 2025-11-25\r\n";
+    response += "MCP-Protocol-Version: " + protocolVersion + "\r\n";
     if (!origin.isEmpty()) {
         response += "Access-Control-Allow-Origin: " + origin + "\r\n";
         response += "Vary: Origin\r\n";
@@ -156,8 +187,11 @@ bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error) {
     }
 
     bool ok = false;
-    const int contentLength = HeaderValue(headers, "content-length").toInt(&ok);
-    if (!ok || contentLength < 0 || contentLength > static_cast<int>(kMaxMessageBytes)) {
+    const QByteArray contentLengthHeader = HeaderValue(headers, "content-length");
+    const bool bodylessGet = requestLine.at(0) == "GET" && contentLengthHeader.isEmpty();
+    const int contentLength = bodylessGet ? 0 : contentLengthHeader.toInt(&ok);
+    if (!bodylessGet && (!ok || contentLength < 0
+                         || contentLength > static_cast<int>(kMaxMessageBytes))) {
         error = QStringLiteral("missing or invalid Content-Length");
         return false;
     }
@@ -262,17 +296,22 @@ int RunMcpHttp(const McpDispatcher& dispatcher, const McpHttpOptions& options) {
             const bool authenticated = options.authToken.empty()
                 || authorization == expectedToken || tokenHeader == QByteArray::fromStdString(options.authToken);
 
-            if (requestLine.at(0) != "POST") {
-                WriteHttpResponse(*socket, 405, ErrorBody(QStringLiteral("MCP endpoint requires POST")),
-                                  "application/json", originAllowed ? origin : QByteArray{});
-            } else if (requestLine.at(1) != QByteArray::fromStdString(options.endpoint)) {
+            if (requestLine.at(1) != QByteArray::fromStdString(options.endpoint)) {
                 WriteHttpResponse(*socket, 404, ErrorBody(QStringLiteral("MCP endpoint not found")),
+                                  "application/json", originAllowed ? origin : QByteArray{});
+            } else if (requestLine.at(0) != "POST") {
+                WriteHttpResponse(*socket, 405, ErrorBody(QStringLiteral("MCP endpoint requires POST")),
                                   "application/json", originAllowed ? origin : QByteArray{});
             } else if (!originAllowed) {
                 WriteHttpResponse(*socket, 403, ErrorBody(QStringLiteral("Origin is not allowed")),
                                   "application/json");
             } else if (!authenticated) {
                 WriteHttpResponse(*socket, 401, ErrorBody(QStringLiteral("MCP authentication required")),
+                                  "application/json", origin);
+            } else if (!AcceptsMediaType(HeaderValue(headers, "accept"), "application/json")
+                       || !AcceptsMediaType(HeaderValue(headers, "accept"), "text/event-stream")) {
+                WriteHttpResponse(*socket, 400,
+                                  ErrorBody(QStringLiteral("Accept must include application/json and text/event-stream")),
                                   "application/json", origin);
             } else if (!HeaderValue(headers, "content-type").startsWith("application/json")) {
                 WriteHttpResponse(*socket, 400, ErrorBody(QStringLiteral("Content-Type must be application/json")),
@@ -285,12 +324,27 @@ int RunMcpHttp(const McpDispatcher& dispatcher, const McpHttpOptions& options) {
                     WriteHttpResponse(*socket, 400, ErrorBody(QStringLiteral("invalid JSON-RPC body")),
                                       "application/json", origin);
                 } else {
+                    bool protocolVersionValid = true;
+                    const QByteArray protocolVersion = HttpProtocolVersion(
+                        headers, document.object(), protocolVersionValid);
+                    if (!protocolVersionValid) {
+                        WriteHttpResponse(*socket, 400,
+                                          ErrorBody(QStringLiteral("unsupported MCP-Protocol-Version")),
+                                          "application/json", origin);
+                    } else {
                     const auto response = dispatcher.Handle(document.object());
                     if (response.has_value()) {
                         const QByteArray responseBody = QJsonDocument(*response).toJson(QJsonDocument::Compact);
-                        WriteHttpResponse(*socket, 200, responseBody, "application/json", origin);
+                        QByteArray responseProtocolVersion = protocolVersion;
+                        const QJsonObject result = response->value("result").toObject();
+                        if (result.value("protocolVersion").isString())
+                            responseProtocolVersion = result.value("protocolVersion").toString().toUtf8();
+                        WriteHttpResponse(*socket, 200, responseBody, "application/json", origin,
+                                          responseProtocolVersion);
                     } else {
-                        WriteHttpResponse(*socket, 202, {}, "application/json", origin);
+                        WriteHttpResponse(*socket, 202, {}, "application/json", origin,
+                                          protocolVersion);
+                    }
                     }
                 }
             }

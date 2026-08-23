@@ -116,13 +116,25 @@ try {
     }
     Assert-Condition $ready "HTTP MCP server did not start"
     $httpBody = Json-Line $initialize
-    $httpResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; "MCP-Protocol-Version" = "2025-11-25" } -Body $httpBody -UseBasicParsing
+    $httpResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body $httpBody -UseBasicParsing
     $httpJson = $httpResponse.Content | ConvertFrom-Json
     Assert-Condition ($httpResponse.StatusCode -eq 200) "HTTP status was $($httpResponse.StatusCode)"
     Assert-Condition ($httpJson.result.serverInfo.name -eq "igi1conv") "HTTP MCP response was not initialize"
+    try {
+        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json"; "MCP-Protocol-Version" = "2025-11-25" } -Body $httpBody -UseBasicParsing | Out-Null
+        throw "HTTP request with incomplete Accept header was accepted"
+    } catch {
+        if ($_.Exception.Response.StatusCode.value__ -ne 400) { throw }
+    }
+    try {
+        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2099-01-01" } -Body $httpBody -UseBasicParsing | Out-Null
+        throw "HTTP request with unsupported protocol version was accepted"
+    } catch {
+        if ($_.Exception.Response.StatusCode.value__ -ne 400) { throw }
+    }
     $invalidOriginAccepted = $false
     try {
-        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://evil.example" } -Body $httpBody -UseBasicParsing | Out-Null
+        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://evil.example"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body $httpBody -UseBasicParsing | Out-Null
         $invalidOriginAccepted = $true
     } catch {
         if ($_.Exception.Response.StatusCode.value__ -ne 403) { throw }
