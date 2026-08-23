@@ -27,6 +27,9 @@ TEST(McpOperations, RegistryIsDeterministicAndGameFacing) {
     EXPECT_NE(std::find(names.begin(), names.end(), "qsc.compile"), names.end());
     EXPECT_NE(std::find(names.begin(), names.end(), "res.repack"), names.end());
     EXPECT_NE(std::find(names.begin(), names.end(), "lightmap.recalc"), names.end());
+    EXPECT_NE(std::find(names.begin(), names.end(), "graph.md"), names.end());
+    EXPECT_NE(std::find(names.begin(), names.end(), "iff.export-gif"), names.end());
+    EXPECT_NE(std::find(names.begin(), names.end(), "mtp.sync"), names.end());
 }
 
 TEST(McpOperations, AllowsRegisteredGameCommandsAndRejectsEditorOrUnknownCommands) {
@@ -40,9 +43,16 @@ TEST(McpOperations, AllowsRegisteredGameCommandsAndRejectsEditorOrUnknownCommand
         << error;
     EXPECT_TRUE(igi1conv::IsAllowedGameCommand({"lightmap", "recalc", "--model", "435_01_1"}, error))
         << error;
+    EXPECT_TRUE(igi1conv::IsAllowedGameCommand({"graph", "md", "graph.bin"}, error))
+        << error;
+    EXPECT_TRUE(igi1conv::IsAllowedGameCommand({"iff", "export-gif", "walk.iff"}, error))
+        << error;
+    EXPECT_TRUE(igi1conv::IsAllowedGameCommand({"mtp", "sync", "level.mtp", "level.dat"}, error))
+        << error;
 
     EXPECT_FALSE(igi1conv::IsAllowedGameCommand({}, error));
     EXPECT_FALSE(igi1conv::IsAllowedGameCommand({"mcp", "--transport", "stdio"}, error));
+    EXPECT_FALSE(igi1conv::IsAllowedGameCommand({"test", "--game-path", "game"}, error));
     EXPECT_FALSE(igi1conv::IsAllowedGameCommand({"--gui"}, error));
     EXPECT_FALSE(igi1conv::IsAllowedGameCommand({"settings", "set", "theme", "dark"}, error));
     EXPECT_FALSE(igi1conv::IsAllowedGameCommand({"unknown", "operation"}, error));
@@ -54,5 +64,11 @@ TEST(McpOperations, FindsRegisteredOperationByStableName) {
     ASSERT_NE(operation, nullptr);
     EXPECT_EQ(operation->commandPrefix, (std::vector<std::string>{"qsc", "edit-object"}));
     EXPECT_TRUE(operation->writesGame);
+    EXPECT_EQ(igi1conv::FindGameOperation("graph.md")->commandPrefix,
+              (std::vector<std::string>{"graph", "md"}));
+    EXPECT_EQ(igi1conv::FindGameOperation("iff.export-gif")->commandPrefix,
+              (std::vector<std::string>{"iff", "export-gif"}));
+    EXPECT_EQ(igi1conv::FindGameOperation("mtp.sync")->commandPrefix,
+              (std::vector<std::string>{"mtp", "sync"}));
     EXPECT_EQ(igi1conv::FindGameOperation("settings.theme"), nullptr);
 }

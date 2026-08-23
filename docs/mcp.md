@@ -82,18 +82,17 @@ The registry currently covers these game-data families:
 
 - `dat`: `info`, `export`, `to-mtp`
 - `fnt`: `info`, `export`
-- `graph`: `info`, `dump`, `export`, `table`
-- `iff`: `info`, `test`, `convert`, `create`, `decompile`, `rebuild`, `emit-qsc`
+- `graph`: `info`, `dump`, `export`, `md`, `table`
+- `iff`: `info`, `test`, `convert`, `create`, `decompile`, `rebuild`, `emit-qsc`, `export-gif`
 - `lightmap`: `list`, `resolve`, `recalc`
 - `mef`: `info`, `dump`, `export`, `to-text`, `compile`, `build-rigid`, `bundle`
-- `mtp`: `info`, `dump`, `repair`, `to-dat`
+- `mtp`: `info`, `dump`, `repair`, `sync`, `to-dat`
 - `olm`: `info`, `to-png`, `to-tga`, `from-png`
 - `qsc`: `validate`, `compile`, `list-objects`, `edit-object`
 - `qvm`: `info`, `disasm`, `decompile`
 - `res`: `list`, `extract`, `unpack`, `compile`, `pack`, `append`, `repack`
 - `terrain`: `info`, `export-lmp`, `export-ctr`
 - `tex`: `info`, `decode`, `to-png`, `to-tga`, `to-spr`
-- `test`: `run`
 - `wav`: `info`, `convert`, `convert-dir`
 
 For example, the object-edit operation is the registry name
