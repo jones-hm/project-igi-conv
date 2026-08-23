@@ -158,6 +158,7 @@ if (IGI1CONV_BUILD_TESTS)
 
     target_sources(igi1conv_tests PRIVATE
         igi1conv/mcp_operations.cpp
+        source/parsers/qsc_object_editor.cpp
     )
 
     include(GoogleTest)
