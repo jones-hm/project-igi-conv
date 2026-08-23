@@ -29,7 +29,6 @@ const std::vector<GameOperation>& BuildOperations() {
             {"iff.create", "Create a game IFF animation from BEF assets", true, {"iff", "create"}},
             {"iff.decompile", "Decompile game IFF animation data", false, {"iff", "decompile"}},
             {"iff.emit-qsc", "Generate game animation QSC data from BEF assets", true, {"iff", "emit-qsc"}},
-            {"iff.export-gif", "Export a game animation preview as a GIF", false, {"iff", "export-gif"}},
             {"iff.info", "Inspect game skeletal animation metadata", false, {"iff", "info"}},
             {"iff.rebuild", "Rebuild a game IFF animation", true, {"iff", "rebuild"}},
             {"iff.test", "Validate game skeletal animation data", false, {"iff", "test"}},

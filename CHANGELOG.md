@@ -28,6 +28,15 @@ All notable changes to this project will be documented in this file.
   position/rotation/model/team write-back, Origin rejection, and the remote
   authentication guard.
 
+### Hardened
+- Removed the editor-only `iff.export-gif` preview from the MCP allowlist.
+- Reject unknown MCP argument fields instead of silently ignoring values that
+  the advertised schemas mark with `additionalProperties: false`.
+- Enforced the `HumanSoldier` layout for named placement fields; other task
+  classes remain available through explicit indexed updates.
+- Rejected malformed quoted QSC literals and added regression coverage.
+- Documented that MCP QSC writes require a distinct output path.
+
 ## [1.11.0] - 2026-06-25
 
 ### Added

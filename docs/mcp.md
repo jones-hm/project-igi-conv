@@ -89,7 +89,7 @@ The registry currently covers these game-data families:
 - `dat`: `info`, `export`, `to-mtp`
 - `fnt`: `info`, `export`
 - `graph`: `info`, `dump`, `export`, `md`, `table`
-- `iff`: `info`, `test`, `convert`, `create`, `decompile`, `rebuild`, `emit-qsc`, `export-gif`
+- `iff`: `info`, `test`, `convert`, `create`, `decompile`, `rebuild`, `emit-qsc`
 - `lightmap`: `list`, `resolve`, `recalc`
 - `mef`: `info`, `dump`, `export`, `to-text`, `compile`, `build-rigid`, `bundle`
 - `mtp`: `info`, `dump`, `repair`, `sync`, `to-dat`
@@ -133,6 +133,12 @@ same-directory temporary file and atomically replaced after validation:
 Selectors can use `task_id`, `class_name`, and/or `object_name`. The combined
 selector must match exactly one `Task_New` call. Missing and ambiguous
 selectors fail before any output is written.
+
+The named placement fields (`position`, `rotation`, `model_id`, `team`,
+`bone_hierarchy`, and `stand_animation`) use the known `HumanSoldier` layout
+only. Other task classes, including weapons, enemies, triggers, and AI
+containers, must use the generic `updates` array so their task-specific direct
+argument semantics are not guessed.
 
 `working_directory` is optional when the input and output paths are relative;
 the server restores the process directory before returning the result.
@@ -213,8 +219,9 @@ The repository includes focused GoogleTest coverage in
 smoke harness is:
 
 ```powershell
-./tests/mcp_smoke.ps1 -QtBin 'D:/Qt/6.5.3/msvc2019_64/bin'
+pwsh -File ./tests/mcp_smoke.ps1 -QtBin 'D:/Qt/6.5.3/msvc2019_64/bin'
 ```
 
 It exercises stdio, a real QSC list/edit request, HTTP initialization,
+tool discovery and operation round-trip, notification `202`, method rejection,
 invalid-Origin rejection, and the remote authentication guard.

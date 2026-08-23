@@ -76,9 +76,9 @@ from the supported versions and rejects malformed or unsupported requests.
 The QSC editor operates on direct arguments of balanced `Task_New(...)` calls
 and preserves all untouched source text. Selection must identify exactly one
 call; ambiguous or missing selectors fail before writing. Updates are written
-to an explicit output file or to an explicitly requested in-place path, with
-the original file left untouched until the transformed document is fully
-validated.
+to an explicit output file whose path differs from the input. The original
+file is left untouched until the transformed document is fully validated;
+in-place mutation is intentionally not part of this MCP surface.
 
 Named fields use the known `HumanSoldier` layout:
 
@@ -108,8 +108,8 @@ target.
 - File paths are passed as arguments, never interpolated into a shell command.
 - HTTP rejects invalid Origin values and refuses non-loopback binding without
   an explicit token. The default HTTP bind is `127.0.0.1`.
-- Writes require explicit output paths; in-place mutation is opt-in and
-  backed by a temporary validated document before replacement.
+- Writes require explicit output paths that differ from the input; in-place
+  mutation is intentionally rejected by the CLI and MCP surface.
 
 ## Verification
 

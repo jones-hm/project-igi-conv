@@ -72,6 +72,19 @@ TEST(QscObjectEditor, SupportsGenericIndexedParametersForOtherGameTaskClasses) {
     EXPECT_NE(output.find("401, \"HumanSoldier\", \"Alpha\", 10, 20, 30, 0.5, \"000_01_1\", 1, 2, 3"), std::string::npos);
 }
 
+TEST(QscObjectEditor, RejectsNamedPlacementFieldsForOtherTaskClasses) {
+    igi1conv::QscTaskSelector selector;
+    selector.taskId = 501;
+    std::string output = "sentinel";
+
+    const auto result = igi1conv::EditQscTasks(
+        kObjects, selector, {{6, "1.25", true}}, output);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(output, kObjects);
+    EXPECT_NE(result.error.find("HumanSoldier"), std::string::npos);
+}
+
 TEST(QscObjectEditor, RejectsAmbiguousOrMalformedWritesWithoutChangingOutput) {
     igi1conv::QscTaskSelector ambiguous;
     ambiguous.className = "HumanSoldier";

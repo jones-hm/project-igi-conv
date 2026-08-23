@@ -120,6 +120,31 @@ try {
     $httpJson = $httpResponse.Content | ConvertFrom-Json
     Assert-Condition ($httpResponse.StatusCode -eq 200) "HTTP status was $($httpResponse.StatusCode)"
     Assert-Condition ($httpJson.result.serverInfo.name -eq "igi1conv") "HTTP MCP response was not initialize"
+
+    $httpToolsRequest = [ordered]@{ jsonrpc = "2.0"; id = 4; method = "tools/list" }
+    $httpToolsResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body (Json-Line $httpToolsRequest) -UseBasicParsing
+    $httpToolsJson = $httpToolsResponse.Content | ConvertFrom-Json
+    Assert-Condition ($httpToolsResponse.StatusCode -eq 200) "HTTP tools/list status was $($httpToolsResponse.StatusCode)"
+    $httpToolNames = @($httpToolsJson.result.tools | ForEach-Object { $_.name })
+    Assert-Condition ($httpToolNames -contains "igi_game_command") "HTTP tools/list omitted igi_game_command"
+    Assert-Condition ($httpToolNames -contains "igi_game_object_edit") "HTTP tools/list omitted igi_game_object_edit"
+
+    $httpCallResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body (Json-Line $call) -UseBasicParsing
+    $httpCallJson = $httpCallResponse.Content | ConvertFrom-Json
+    Assert-Condition ($httpCallResponse.StatusCode -eq 200) "HTTP tools/call status was $($httpCallResponse.StatusCode)"
+    Assert-Condition ($httpCallJson.result.structuredContent.exit_code -eq 0) "HTTP game operation failed"
+    Assert-Condition ($httpCallJson.result.structuredContent.stdout.Contains("SmokeAlpha")) "HTTP game operation did not reach QSC listing"
+
+    $httpNotificationResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body (Json-Line $initialized) -UseBasicParsing
+    Assert-Condition ($httpNotificationResponse.StatusCode -eq 202) "HTTP notification status was $($httpNotificationResponse.StatusCode)"
+
+    try {
+        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Get -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -UseBasicParsing | Out-Null
+        throw "HTTP GET request was accepted"
+    } catch {
+        if ($_.Exception.Response.StatusCode.value__ -ne 405) { throw }
+    }
+
     try {
         Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json"; "MCP-Protocol-Version" = "2025-11-25" } -Body $httpBody -UseBasicParsing | Out-Null
         throw "HTTP request with incomplete Accept header was accepted"

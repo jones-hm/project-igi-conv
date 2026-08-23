@@ -217,6 +217,51 @@ TEST(McpProtocol, RejectsWrongTypesForTypedGameObjectFields) {
     EXPECT_FALSE(executed);
 }
 
+TEST(McpProtocol, RejectsUnknownFieldsDeclaredInvalidBySchemas) {
+    bool executed = false;
+    igi1conv::McpDispatcher dispatcher(
+        [&](const std::vector<std::string>&, const std::string&) {
+            executed = true;
+            return igi1conv::McpExecutionResult{0, "unexpected", ""};
+        });
+
+    QJsonObject commandArgs{{"command", "tex.info"}, {"args", QJsonArray{}},
+                            {"camera", "editor-only"}};
+    const auto commandResponse = dispatcher.Handle(ToolCall(12, "igi_game_command", commandArgs));
+    ASSERT_TRUE(commandResponse.has_value());
+    EXPECT_TRUE(commandResponse->value("result").toObject().value("isError").toBool());
+
+    QJsonObject objectArgs{{"input_file", "objects.qsc"}, {"output_file", "edited.qsc"},
+                           {"selector", QJsonObject{{"task_id", 401}, {"camera", true}}}};
+    const auto selectorResponse = dispatcher.Handle(ToolCall(13, "igi_game_object_edit", objectArgs));
+    ASSERT_TRUE(selectorResponse.has_value());
+    EXPECT_TRUE(selectorResponse->value("result").toObject().value("isError").toBool());
+
+    objectArgs.insert("selector", QJsonObject{{"task_id", 401}});
+    objectArgs.insert("updates", QJsonArray{QJsonObject{{"direct_index", 11},
+                                                         {"literal", "TRUE"},
+                                                         {"camera", false}}});
+    const auto updateResponse = dispatcher.Handle(ToolCall(14, "igi_game_object_edit", objectArgs));
+    ASSERT_TRUE(updateResponse.has_value());
+    EXPECT_TRUE(updateResponse->value("result").toObject().value("isError").toBool());
+    EXPECT_FALSE(executed);
+}
+
+TEST(McpProtocol, RejectsNamedPlacementFieldsForNonHumanSoldierSelector) {
+    igi1conv::McpDispatcher dispatcher(
+        [](const std::vector<std::string>&, const std::string&) {
+            return igi1conv::McpExecutionResult{0, "unexpected", ""};
+        });
+    QJsonObject arguments{{"input_file", "objects.qsc"}, {"output_file", "edited.qsc"},
+                          {"selector", QJsonObject{{"class_name", "Weapon"}}},
+                          {"model_id", "rifle"}};
+    const auto response = dispatcher.Handle(ToolCall(15, "igi_game_object_edit", arguments));
+    ASSERT_TRUE(response.has_value());
+    EXPECT_TRUE(response->value("result").toObject().value("isError").toBool());
+    EXPECT_TRUE(response->value("result").toObject().value("structuredContent")
+                    .toObject().value("error").toString().contains("HumanSoldier"));
+}
+
 TEST(McpProtocol, NegotiatesToSupportedVersionForNewerClient) {
     igi1conv::McpDispatcher dispatcher;
     QJsonObject params{

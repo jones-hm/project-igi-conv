@@ -162,7 +162,9 @@ discovered from `tools/list`, such as `tex.info`, `mef.compile`, `res.repack`,
 can select a QSC `Task_New` by task id, class, or object name and update game
 position, rotation/gamma, model id, team, bone hierarchy, stand animation, or
 an arbitrary validated direct argument for task-specific enemy, weapon, AI,
-and trigger data. Every write requires an explicit output file.
+and trigger data. Named placement fields are restricted to the known
+`HumanSoldier` layout; other task classes use explicit indexed updates. Every
+write requires an explicit output file.
 
 For the complete MCP contract, operation registry, JSON examples, result
 format, and excluded editor-only surfaces, see [docs/mcp.md](docs/mcp.md).

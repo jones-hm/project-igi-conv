@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
 #include <limits>
 #include <optional>
 #include <sstream>
@@ -69,6 +70,23 @@ QString NumberToString(const QJsonValue& value) {
     if (value.isString()) return value.toString();
     if (value.isBool()) return value.toBool() ? QStringLiteral("TRUE") : QStringLiteral("FALSE");
     return {};
+}
+
+bool RejectUnknownKeys(const QJsonObject& object,
+                       std::initializer_list<const char*> allowed,
+                       const QString& objectName,
+                       QString& error) {
+    for (auto it = object.constBegin(); it != object.constEnd(); ++it) {
+        const bool known = std::any_of(allowed.begin(), allowed.end(),
+                                       [&it](const char* key) {
+                                           return it.key() == QString::fromUtf8(key);
+                                       });
+        if (!known) {
+            error = objectName + QStringLiteral(" contains unknown field: ") + it.key();
+            return false;
+        }
+    }
+    return true;
 }
 
 bool ReadString(const QJsonObject& object, const char* key, std::string& value,
@@ -284,6 +302,9 @@ std::optional<QJsonObject> HandleGameCommand(const QJsonObject& arguments,
                                              const QJsonValue& id,
                                              const McpCommandExecutor& executor) {
     QString error;
+    if (!RejectUnknownKeys(arguments, {"command", "args", "working_directory"},
+                           QStringLiteral("igi_game_command arguments"), error))
+        return ResultResponse(id, ToolError(error));
     std::string operationName;
     if (!ReadString(arguments, "command", operationName, error))
         return ResultResponse(id, ToolError(error));
@@ -340,6 +361,12 @@ std::optional<QJsonObject> HandleGameObjectEdit(const QJsonObject& arguments,
                                                 const QJsonValue& id,
                                                 const McpCommandExecutor& executor) {
     QString error;
+    if (!RejectUnknownKeys(arguments,
+                           {"input_file", "output_file", "selector", "position", "rotation",
+                            "model_id", "team", "bone_hierarchy", "stand_animation", "updates",
+                            "working_directory"},
+                           QStringLiteral("igi_game_object_edit arguments"), error))
+        return ResultResponse(id, ToolError(error));
     std::string input;
     std::string output;
     if (!ReadString(arguments, "input_file", input, error)
@@ -350,6 +377,21 @@ std::optional<QJsonObject> HandleGameObjectEdit(const QJsonObject& arguments,
     if (!selectorValue.isObject())
         return ResultResponse(id, ToolError(QStringLiteral("selector must be an object")));
     const QJsonObject selector = selectorValue.toObject();
+    if (!RejectUnknownKeys(selector, {"task_id", "class_name", "object_name"},
+                           QStringLiteral("selector"), error))
+        return ResultResponse(id, ToolError(error));
+    const auto hasValue = [&arguments](const char* key) {
+        const QJsonValue value = arguments.value(key);
+        return !value.isUndefined() && !value.isNull();
+    };
+    const bool hasNamedPlacementField =
+        hasValue("position") || hasValue("rotation") || hasValue("model_id")
+        || hasValue("team") || hasValue("bone_hierarchy") || hasValue("stand_animation");
+    if (hasNamedPlacementField && selector.value("class_name").isString()
+        && !selector.value("class_name").toString().isEmpty()
+        && selector.value("class_name").toString() != QStringLiteral("HumanSoldier"))
+        return ResultResponse(id, ToolError(
+            QStringLiteral("named placement fields require a HumanSoldier class selector")));
     std::vector<std::string> command{"qsc", "edit-object", input, "-o", output};
     bool hasSelector = false;
     if (!selector.value("task_id").isUndefined()) {
@@ -418,6 +460,9 @@ std::optional<QJsonObject> HandleGameObjectEdit(const QJsonObject& arguments,
             if (!rawUpdate.isObject())
                 return ResultResponse(id, ToolError(QStringLiteral("each update must be an object")));
             const QJsonObject update = rawUpdate.toObject();
+            if (!RejectUnknownKeys(update, {"direct_index", "literal"},
+                                   QStringLiteral("updates item"), error))
+                return ResultResponse(id, ToolError(error));
             int index = 0;
             std::string literal;
             if (!ReadInteger(update, "direct_index", index, error)

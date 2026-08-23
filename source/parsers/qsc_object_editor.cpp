@@ -409,6 +409,11 @@ QscEditResult EditQscTasks(const std::string& source,
                          + std::to_string(update.directIndex);
             return result;
         }
+        if (update.requiresHumanSoldierLayout
+            && tasks[selected].className != "HumanSoldier") {
+            result.error = "named placement fields require a HumanSoldier Task_New layout";
+            return result;
+        }
         if (update.directIndex >= calls[selected].arguments.size()) {
             result.error = "direct argument index is outside the selected Task_New call";
             return result;

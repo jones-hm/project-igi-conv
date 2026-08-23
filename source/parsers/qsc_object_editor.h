@@ -17,6 +17,10 @@ struct QscTaskSelector {
 struct QscFieldUpdate {
     std::size_t directIndex = 0;
     std::string literal;
+    // Named placement fields are defined only for the HumanSoldier layout.
+    // Generic indexed updates leave this false so other game task classes can
+    // use their own direct-argument semantics.
+    bool requiresHumanSoldierLayout = false;
 };
 
 struct QscTaskSummary {

@@ -335,29 +335,29 @@ static int do_edit_object(int argc, char** argv)
                 std::cerr << "igi1conv qsc edit-object: --position requires x y z\n";
                 return 1;
             }
-            updates.push_back({3, argv[++i]});
-            updates.push_back({4, argv[++i]});
-            updates.push_back({5, argv[++i]});
+            updates.push_back({3, argv[++i], true});
+            updates.push_back({4, argv[++i], true});
+            updates.push_back({5, argv[++i], true});
         } else if (option == "--rotation") {
             std::string value;
             if (!require_value(i, "--rotation", value)) return 1;
-            updates.push_back({6, std::move(value)});
+            updates.push_back({6, std::move(value), true});
         } else if (option == "--model-id") {
             std::string value;
             if (!require_value(i, "--model-id", value)) return 1;
-            updates.push_back({7, igi1conv::QuoteQscString(value)});
+            updates.push_back({7, igi1conv::QuoteQscString(value), true});
         } else if (option == "--team") {
             std::string value;
             if (!require_value(i, "--team", value)) return 1;
-            updates.push_back({8, std::move(value)});
+            updates.push_back({8, std::move(value), true});
         } else if (option == "--bone-hierarchy") {
             std::string value;
             if (!require_value(i, "--bone-hierarchy", value)) return 1;
-            updates.push_back({9, std::move(value)});
+            updates.push_back({9, std::move(value), true});
         } else if (option == "--stand-animation") {
             std::string value;
             if (!require_value(i, "--stand-animation", value)) return 1;
-            updates.push_back({10, std::move(value)});
+            updates.push_back({10, std::move(value), true});
         } else if (option == "--set") {
             std::string value;
             igi1conv::QscFieldUpdate update;
