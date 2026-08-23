@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Game-facing MCP server** — `igi1conv mcp` now exposes the registered
+  converter operations through JSON-RPC tools and the
+  `igi1conv://game-capabilities` resource.
+- **Stdio and Streamable HTTP transports** — stdio is the default; HTTP binds
+  to `127.0.0.1:8765/mcp` by default, validates `Origin`, and requires an
+  authentication token for non-loopback binds.
+- **QSC game-object editing** — list nested `Task_New` objects and write
+  position, rotation/gamma, model id, team, bone hierarchy, stand animation,
+  or validated indexed task arguments while preserving untouched source text.
+
+### Scope and safety
+- MCP exposes only game-data inspection, validation, conversion, packing, and
+  edits that can affect files consumed by Project IGI.
+- GUI preferences/state, themes, cache paths, viewer/camera transforms,
+  playback controls, layout, shell execution, and arbitrary executables are
+  intentionally unavailable.
+
+### Verification
+- Added focused registry, protocol, QSC editor, and transport tests.
+- Added a real-process stdio/HTTP smoke harness covering a real QSC listing,
+  position/rotation/model/team write-back, Origin rejection, and the remote
+  authentication guard.
+
 ## [1.11.0] - 2026-06-25
 
 ### Added

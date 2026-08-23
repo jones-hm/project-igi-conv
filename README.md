@@ -19,7 +19,7 @@ An interactive workspace designed for visual inspection, navigation, and quick a
 > To use **Apply Textures** on 3D models in the GUI, you must first select the active level folder from the **Settings** menu to resolve the correct texture mappings.
 
 > [!NOTE]
-> **Latest: v1.9.4 (June 2026) — Animation mode with skeletal skinning**:
+> **Latest: v1.11.0 (June 2026) — Animation mode with skeletal skinning and game-facing MCP support**:
 > - **Animation mode (Mode 6)**: New GUI mode that plays IFF bone animations on textured 3D MEF models. Toggle via **Settings > Animation**. Includes a Model dropdown, Animations listbox, Play button, Loop checkbox, and a configurable **FPS input textbox (1–120)**.
 > - **Skeletal skinning**: The textured 3D MEF mesh is deformed each frame using the IFF bone transforms — you see the actual animated character, not skeleton dots. Press `P` to toggle rest-pose skinning for debugging; press `B` to toggle the bone skeleton overlay (now depth-test disabled so it renders on top of the model at the correct scale).
 > - **Auto-setup**: Selecting a level from **Settings > Level** auto-detects `objects.qsc`, the `common/ANIMS` folder, and the level `models/` folder, so Animation mode is one click away.
@@ -130,6 +130,42 @@ igi1conv tex to-png textures/arrow1_1.spr -o out/arrow1_1.png --resize 32 32
 # Convert your edited PNG back to the game's TEX format
 igi1conv tex to-tga my_edits/FLARE00.png -o textures/FLARE00.TEX
 ```
+
+## MCP server — game effects only
+
+`igi1conv` includes a Model Context Protocol server for automation against the
+same supported game-data operations as the CLI. It exposes conversions,
+inspection, validation, packing, lightmap work, and QSC task edits that affect
+files consumed by Project IGI. It does not expose GUI preferences, themes,
+cache paths, viewer/camera state, animation playback controls, layout, or any
+other editor-only state.
+
+Start the default newline-delimited stdio transport:
+
+```bash
+igi1conv mcp --transport stdio
+```
+
+Or start Streamable HTTP on localhost:
+
+```bash
+igi1conv mcp --transport http --host 127.0.0.1 --port 8765
+```
+
+HTTP validates `Origin`. A non-loopback bind is refused unless an explicit
+`--auth-token` is supplied; use `--origin` to provide an explicit Origin
+allowlist. The MCP endpoint is `/mcp` by default.
+
+The server advertises two game-facing tools: `igi_game_command` (all entries
+discovered from `tools/list`, such as `tex.info`, `mef.compile`, `res.repack`,
+`lightmap.recalc`, and `qsc.compile`) and `igi_game_object_edit`. The latter
+can select a QSC `Task_New` by task id, class, or object name and update game
+position, rotation/gamma, model id, team, bone hierarchy, stand animation, or
+an arbitrary validated direct argument for task-specific enemy, weapon, AI,
+and trigger data. Every write requires an explicit output file.
+
+For the complete MCP contract, operation registry, JSON examples, result
+format, and excluded editor-only surfaces, see [docs/mcp.md](docs/mcp.md).
 
 #### 2. Exporting 3D Meshes (`.mef`)
 Extract weapons, characters, or level geometry into `.obj` format.
