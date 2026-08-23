@@ -36,6 +36,11 @@ file(GLOB SOURCES_PARSERS "source/parsers/*.cpp" "source/parsers/*.h")
 
 # ─── igi1conv CLI ───────────────────────────────────────────────────────────────
 file(GLOB IGI1CONV_SOURCES "igi1conv/*.cpp" "igi1conv/*.h")
+list(APPEND IGI1CONV_SOURCES
+    "igi1conv/command_dispatch.cpp"
+    "igi1conv/mcp_operations.cpp"
+)
+list(REMOVE_DUPLICATES IGI1CONV_SOURCES)
 if (WIN32)
     list(APPEND IGI1CONV_SOURCES "assets/igi1conv.rc")
     list(APPEND IGI1CONV_SOURCES "assets/resources.qrc")
@@ -144,10 +149,15 @@ if (IGI1CONV_BUILD_TESTS)
     target_link_libraries(igi1conv_tests PRIVATE gtest)
 
     target_include_directories(igi1conv_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/igi1conv
         ${PROJECT_SOURCE_DIR}/source
         ${PROJECT_SOURCE_DIR}/source/parsers
         ${PROJECT_SOURCE_DIR}/third_party/glm-1.0.1
         ${PROJECT_SOURCE_DIR}/third_party
+    )
+
+    target_sources(igi1conv_tests PRIVATE
+        igi1conv/mcp_operations.cpp
     )
 
     include(GoogleTest)
