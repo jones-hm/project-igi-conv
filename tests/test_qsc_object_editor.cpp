@@ -115,6 +115,20 @@ TEST(QscObjectEditor, RejectsNonFiniteNumericLiterals) {
     EXPECT_NE(result.error.find("literal"), std::string::npos);
 }
 
+TEST(QscObjectEditor, RejectsQuotedLiteralsWithEscapedClosingQuote) {
+    igi1conv::QscTaskSelector selector;
+    selector.taskId = 401;
+    std::string output;
+    const std::string malformedLiteral = "\"unterminated\\\"";
+
+    const auto result = igi1conv::EditQscTasks(
+        kObjects, selector, {{3, malformedLiteral}}, output);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(output, kObjects);
+    EXPECT_NE(result.error.find("literal"), std::string::npos);
+}
+
 TEST(QscObjectEditor, PreservesCommentsAfterEditedArgumentLiterals) {
     const std::string source =
         "Task_New(701, \"HumanSoldier\", \"Commented\", 10 /* keep x */, "

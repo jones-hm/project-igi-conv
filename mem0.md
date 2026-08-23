@@ -338,3 +338,8 @@ exit codes, recursive directory walker with mixed good/bad inputs, and
 **Description:** `MefExportObjHasRealUvs` and `MefExportVFlipMatchesModelType` used `IGI1CONV_NEED(f, "\\.mef$")` which could pick Type 3 lightmap models. Type 3 models have synthetic UVs spanning `-11..1` (before fix) and no real texture coordinates, causing the tests' expected UV range assertions to fail.
 
 **Resolution:** Both tests now use `FindCorpusMefOfModelType(1)` (for Type 1 skinned) and `FindCorpusMefOfModelType(0)` (for Type 0 rigid) to guarantee they test only models with real texture coordinates. Type 3 models are excluded entirely from these assertions.
+
+## Bug ID: MCP-QSC-Escaped-Closing-Quote (PR #19)
+**Description:** The game-facing MCP QSC editor accepted a quoted literal whose final quote was escaped, allowing an edit request to persist malformed QSC source while reporting success.
+
+**Resolution:** QSC literal validation now scans escaped characters and requires an unescaped closing quote at the end of the token. Added a regression test covering the malformed literal and preserving the original output on rejection.

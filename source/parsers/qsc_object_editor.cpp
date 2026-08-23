@@ -293,7 +293,21 @@ bool IsSafeLiteral(const std::string& raw) {
         return false;
     if (raw.front() == '"') {
         if (raw.size() < 2 || raw.back() != '"') return false;
-        return SkipString(raw, 0) == raw.size();
+        std::size_t pos = 1;
+        while (pos < raw.size()) {
+            if (raw[pos] == '\\') {
+                // A quote escaped by the final backslash is not a closing
+                // quote; accepting it would write an unterminated QSC token.
+                if (pos + 1 >= raw.size() || pos + 1 == raw.size() - 1)
+                    return false;
+                pos += 2;
+                continue;
+            }
+            if (raw[pos] == '"')
+                return pos == raw.size() - 1;
+            ++pos;
+        }
+        return false;
     }
     if (raw == "TRUE" || raw == "FALSE" || raw == "true" || raw == "false")
         return true;
