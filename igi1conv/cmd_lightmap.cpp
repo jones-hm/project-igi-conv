@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
+#include <chrono>
 
 namespace fs = std::filesystem;
 using igi1conv::LightmapBinding;
@@ -297,7 +298,18 @@ int do_lightmap_recalc(const RecalcArgs& args) {
     };
 
     size_t blockCount = std::min(geo.renderBlocks.size(), olmFiles.size());
-    size_t written = 0;
+    struct PendingWrite {
+        fs::path target;
+        fs::path temporary;
+        fs::path backup;
+        OLMFile olm;
+        glm::vec3 factor;
+    };
+    std::vector<PendingWrite> pending;
+    pending.reserve(blockCount);
+
+    // Prepare every output before touching any original file.  A malformed
+    // later lightmap must not leave an earlier block permanently rewritten.
     for (size_t i = 0; i < blockCount; ++i) {
         const auto& block = geo.renderBlocks[i];
 
@@ -331,26 +343,111 @@ int do_lightmap_recalc(const RecalcArgs& args) {
 
         OLMFile olm = ParseOlm(olmFiles[i]);
         if (!olm.valid) {
-            std::cerr << "lightmap: skip (parse failed): " << olmFiles[i] << " (" << olm.error << ")\n";
-            continue;
+            std::cerr << "lightmap: aborting (parse failed): " << olmFiles[i] << " (" << olm.error
+                      << "); no lightmap files were changed\n";
+            return 3;
         }
         for (auto& px : olm.pixels) {
             px.r = static_cast<uint8_t>(std::min(255.0f, std::round(px.r * factor.x)));
             px.g = static_cast<uint8_t>(std::min(255.0f, std::round(px.g * factor.y)));
             px.b = static_cast<uint8_t>(std::min(255.0f, std::round(px.b * factor.z)));
         }
-        std::string werr;
-        if (!WriteOlm(olmFiles[i], olm, werr)) {
-            std::cerr << "lightmap: write failed: " << olmFiles[i] << " (" << werr << ")\n";
-            continue;
-        }
-        ++written;
-        std::cout << "  block " << i << " factor=(" << factor.x << "," << factor.y << "," << factor.z << ") -> "
-                   << fs::path(olmFiles[i]).filename().string() << "\n";
+        pending.push_back({fs::path(olmFiles[i]), {}, {}, std::move(olm), factor});
     }
 
-    std::cout << "lightmap: recalc wrote " << written << "/" << blockCount << " .olm file(s)\n";
-    return written > 0 ? 0 : 3;
+    if (pending.empty()) {
+        std::cerr << "lightmap: recalc produced no writable blocks; no lightmap files were changed\n";
+        return 3;
+    }
+
+    const auto transactionId = std::to_string(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+    for (size_t i = 0; i < pending.size(); ++i) {
+        pending[i].temporary = pending[i].target;
+        pending[i].temporary += ".mcp-recalc-" + transactionId + "-" + std::to_string(i) + ".tmp";
+        pending[i].backup = pending[i].target;
+        pending[i].backup += ".mcp-recalc-" + transactionId + "-" + std::to_string(i) + ".bak";
+
+        std::error_code existsError;
+        if (fs::exists(pending[i].temporary, existsError) || existsError) {
+            std::cerr << "lightmap: temporary output already exists: " << pending[i].temporary << "\n";
+            return 3;
+        }
+        existsError.clear();
+        if (fs::exists(pending[i].backup, existsError) || existsError) {
+            std::cerr << "lightmap: backup output already exists: " << pending[i].backup << "\n";
+            return 3;
+        }
+    }
+
+    auto removeTemporaryFiles = [&]() {
+        for (const auto& item : pending) {
+            std::error_code ignored;
+            fs::remove(item.temporary, ignored);
+        }
+    };
+
+    for (const auto& item : pending) {
+        std::string writeError;
+        if (!WriteOlm(item.temporary.string(), item.olm, writeError)) {
+            removeTemporaryFiles();
+            std::cerr << "lightmap: temporary write failed: " << item.target << " (" << writeError
+                      << "); no lightmap files were changed\n";
+            return 3;
+        }
+    }
+
+    struct CommittedWrite { fs::path target; fs::path backup; };
+    std::vector<CommittedWrite> committed;
+    committed.reserve(pending.size());
+    auto rollback = [&]() {
+        for (auto it = committed.rbegin(); it != committed.rend(); ++it) {
+            std::error_code ignored;
+            fs::remove(it->target, ignored);
+            fs::rename(it->backup, it->target, ignored);
+        }
+    };
+
+    for (const auto& item : pending) {
+        std::error_code renameError;
+        fs::rename(item.target, item.backup, renameError);
+        if (renameError) {
+            rollback();
+            removeTemporaryFiles();
+            std::cerr << "lightmap: cannot stage " << item.target << " (" << renameError.message()
+                      << "); no lightmap files were changed\n";
+            return 3;
+        }
+
+        renameError.clear();
+        fs::rename(item.temporary, item.target, renameError);
+        if (renameError) {
+            std::error_code restoreError;
+            fs::rename(item.backup, item.target, restoreError);
+            rollback();
+            removeTemporaryFiles();
+            std::cerr << "lightmap: cannot commit " << item.target << " (" << renameError.message()
+                      << "); rollback " << (restoreError ? "failed" : "completed") << "\n";
+            return 3;
+        }
+        committed.push_back({item.target, item.backup});
+    }
+
+    for (const auto& item : committed) {
+        std::error_code cleanupError;
+        fs::remove(item.backup, cleanupError);
+        if (cleanupError)
+            std::cerr << "lightmap: warning: could not remove backup " << item.backup << " ("
+                      << cleanupError.message() << ")\n";
+    }
+
+    for (size_t i = 0; i < pending.size(); ++i) {
+        const auto& item = pending[i];
+        std::cout << "  block " << i << " factor=(" << item.factor.x << "," << item.factor.y << ","
+                   << item.factor.z << ") -> " << item.target.filename().string() << "\n";
+    }
+    std::cout << "lightmap: recalc wrote " << pending.size() << "/" << blockCount << " .olm file(s)\n";
+    return 0;
 }
 
 } // namespace

@@ -21,6 +21,65 @@ struct StreamCapture {
     std::streambuf* oldErr;
 };
 
+class CurrentDirectoryGuard {
+public:
+    bool Enter(const std::string& requestedDirectory, std::string& errorText) {
+        if (requestedDirectory.empty()) return true;
+
+        std::error_code error;
+        originalDirectory_ = std::filesystem::current_path(error);
+        if (error) {
+            errorText = "cannot determine current directory";
+            return false;
+        }
+
+        const std::filesystem::path requested(requestedDirectory);
+        error.clear();
+        if (!std::filesystem::is_directory(requested, error) || error) {
+            errorText = "working_directory is not an existing directory";
+            return false;
+        }
+
+        error.clear();
+        std::filesystem::current_path(requested, error);
+        if (error) {
+            // Be explicit about restoring even when changing into the target
+            // directory fails.  This keeps a failed MCP request from changing
+            // the process-wide cwd seen by a later request.
+            std::error_code restoreError;
+            std::filesystem::current_path(originalDirectory_, restoreError);
+            errorText = restoreError ? "cannot enter working_directory and cannot restore current directory"
+                                     : "cannot enter working_directory";
+            return false;
+        }
+        changed_ = true;
+        return true;
+    }
+
+    bool Restore(std::string& errorText) {
+        if (!changed_) return true;
+        std::error_code error;
+        std::filesystem::current_path(originalDirectory_, error);
+        if (error) {
+            errorText = "cannot restore working directory";
+            return false;
+        }
+        changed_ = false;
+        return true;
+    }
+
+    ~CurrentDirectoryGuard() {
+        if (changed_) {
+            std::error_code ignored;
+            std::filesystem::current_path(originalDirectory_, ignored);
+        }
+    }
+
+private:
+    std::filesystem::path originalDirectory_;
+    bool changed_ = false;
+};
+
 } // namespace
 
 McpExecutionResult ExecuteMcpGameCommand(const std::vector<std::string>& command,
@@ -29,24 +88,11 @@ McpExecutionResult ExecuteMcpGameCommand(const std::vector<std::string>& command
     std::ostringstream stdoutStream;
     std::ostringstream stderrStream;
 
-    std::error_code error;
-    const std::filesystem::path originalDirectory = std::filesystem::current_path(error);
-    if (error) {
-        result.stderrText = "cannot determine current directory";
+    CurrentDirectoryGuard currentDirectory;
+    std::string directoryError;
+    if (!currentDirectory.Enter(workingDirectory, directoryError)) {
+        result.stderrText = directoryError;
         return result;
-    }
-
-    if (!workingDirectory.empty()) {
-        const std::filesystem::path requested(workingDirectory);
-        if (!std::filesystem::is_directory(requested, error)) {
-            result.stderrText = "working_directory is not an existing directory";
-            return result;
-        }
-        std::filesystem::current_path(requested, error);
-        if (error) {
-            result.stderrText = "cannot enter working_directory";
-            return result;
-        }
     }
 
     {
@@ -59,13 +105,11 @@ McpExecutionResult ExecuteMcpGameCommand(const std::vector<std::string>& command
         }
     }
 
-    if (!workingDirectory.empty()) {
-        std::error_code restoreError;
-        std::filesystem::current_path(originalDirectory, restoreError);
-        if (restoreError && result.exitCode == 0) {
+    if (!currentDirectory.Restore(directoryError)) {
+        if (result.exitCode == 0) {
             result.exitCode = 1;
-            stderrStream << "cannot restore working directory";
         }
+        stderrStream << directoryError;
     }
 
     result.stdoutText = stdoutStream.str();

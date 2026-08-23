@@ -71,3 +71,27 @@ TEST(McpTransport, StdioStopsCleanlyAtEofAndUsesLocalhostHttpDefaults) {
     EXPECT_EQ(options.endpoint, "/mcp");
     EXPECT_TRUE(options.authToken.empty());
 }
+
+TEST(McpTransport, RejectsOversizedStdioFrameWithoutConsumingTheNextRequest) {
+    igi1conv::McpDispatcher dispatcher;
+    QJsonObject ping{{"jsonrpc", "2.0"}, {"id", 7}, {"method", "ping"}};
+    std::string input(8 * 1024 * 1024 + 1, 'x');
+    input.push_back('\n');
+    input += JsonLine(ping);
+    input.push_back('\n');
+
+    std::istringstream source(input);
+    std::ostringstream output;
+    std::ostringstream diagnostics;
+    ASSERT_EQ(igi1conv::RunMcpStdio(dispatcher, source, output, diagnostics), 0);
+
+    std::istringstream lines(output.str());
+    std::string line;
+    ASSERT_TRUE(std::getline(lines, line));
+    QJsonObject oversized = QJsonDocument::fromJson(QByteArray::fromStdString(line)).object();
+    EXPECT_EQ(oversized.value("error").toObject().value("code").toInt(), -32700);
+    ASSERT_TRUE(std::getline(lines, line));
+    QJsonObject response = QJsonDocument::fromJson(QByteArray::fromStdString(line)).object();
+    EXPECT_EQ(response.value("id").toInt(), 7);
+    EXPECT_TRUE(diagnostics.str().empty());
+}

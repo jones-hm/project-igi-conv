@@ -36,6 +36,12 @@ All notable changes to this project will be documented in this file.
   classes remain available through explicit indexed updates.
 - Rejected malformed quoted QSC literals and added regression coverage.
 - Documented that MCP QSC writes require a distinct output path.
+- Bounded stdio frames before allocation and preserved framing after an
+  oversized request.
+- Made `lightmap.recalc` preflight and transactionally commit `.olm` files so
+  parse/write failures do not intentionally leave a partial edit set.
+- Scoped `working_directory` changes with restoration on failure and exception
+  paths; made QSC object/lightmap scanning ignore block comments consistently.
 
 ## [1.11.0] - 2026-06-25
 

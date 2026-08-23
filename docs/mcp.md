@@ -141,7 +141,10 @@ containers, must use the generic `updates` array so their task-specific direct
 argument semantics are not guessed.
 
 `working_directory` is optional when the input and output paths are relative;
-the server restores the process directory before returning the result.
+the server restores the process directory before returning the result, including
+failed command paths. Stdio input is bounded before allocation. QSC object and
+lightmap scans treat block comments as trivia, and `lightmap.recalc` stages all
+updated `.olm` files before committing them as one transaction.
 
 The common game placement fields map to direct arguments as follows:
 

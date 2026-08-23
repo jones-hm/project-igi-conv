@@ -56,6 +56,28 @@ bool ReadJsonLine(const std::string& line, QJsonObject& request, QJsonObject& er
     return true;
 }
 
+// std::getline grows its destination until it finds a delimiter.  MCP input
+// is untrusted, so cap the line while reading rather than checking the size
+// only after an attacker has already made the process allocate it.
+bool ReadBoundedStdioLine(std::istream& input, std::string& line, bool& tooLarge) {
+    line.clear();
+    tooLarge = false;
+    char character = '\0';
+    while (input.get(character)) {
+        if (character == '\n') return true;
+        if (line.size() >= kMaxMessageBytes) {
+            tooLarge = true;
+            while (input.get(character) && character != '\n') {
+                // Discard the rest of this frame so the next request is still
+                // independently framed and can be handled safely.
+            }
+            return true;
+        }
+        line.push_back(character);
+    }
+    return !line.empty();
+}
+
 bool AcceptsMediaType(const QByteArray& header, const QByteArray& mediaType) {
     const QByteArray wanted = mediaType.toLower();
     for (QByteArray value : header.toLower().split(',')) {
@@ -216,7 +238,14 @@ int RunMcpStdio(const McpDispatcher& dispatcher) {
 int RunMcpStdio(const McpDispatcher& dispatcher, std::istream& input,
                 std::ostream& output, std::ostream& diagnostics) {
     std::string line;
-    while (std::getline(input, line)) {
+    bool tooLarge = false;
+    while (ReadBoundedStdioLine(input, line, tooLarge)) {
+        if (tooLarge) {
+            WriteJsonLine(JsonRpcError(QJsonValue(QJsonValue::Null), -32700,
+                                       QStringLiteral("JSON-RPC message is too large")),
+                          output);
+            continue;
+        }
         QJsonObject request;
         QJsonObject parseError;
         if (!ReadJsonLine(line, request, parseError)) {

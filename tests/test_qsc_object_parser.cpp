@@ -13,6 +13,7 @@
 #include <string>
 
 using igi1conv::HumanSoldierEntry;
+using igi1conv::LightmapBindingSet;
 using igi1conv::QscObjectSet;
 
 // Real example straight from a decompiled objects.qsc.  The
@@ -131,4 +132,35 @@ Task_New(1, "AIGraph", "", 52730.5, 197655.7, 61505.2, FALSE, 1, 100, 0, 1, 2.0,
     EXPECT_EQ(set.entries[0].modelId, "000_01_1");
     EXPECT_EQ(set.entries[0].boneHierarchy, 0);
     EXPECT_EQ(set.entries[0].standAnimation, -1);
+}
+
+TEST(QscObjectParser, BlockCommentsCannotCreateOrCorruptObjects) {
+    const std::string qsc = R"QSC(
+/* Task_New(999, "HumanSoldier", "fake", 1, 2, 3, 0, "fake", 1, 2, 3) */
+Task_New(407, /* class comment */ "HumanSoldier", "real /* name text */",
+         1.0 /* x */, 2.0, 3.0, 0.0, "model_real", 1, 2, 3);
+)QSC";
+    std::string err;
+    QscObjectSet set = QscObjectSet::parse(qsc, &err);
+    EXPECT_TRUE(err.empty()) << err;
+    ASSERT_EQ(set.entries.size(), 1u);
+    EXPECT_EQ(set.entries[0].name, "real /* name text */");
+    EXPECT_EQ(set.entries[0].modelId, "model_real");
+}
+
+TEST(QscObjectParser, LightmapBindingsIgnoreBlockComments) {
+    const std::string qsc = R"QSC(
+/* Task_New(1, "Building", "fake", 0, 0, 0, "fake") */
+Task_New(1104, "Building", "Tower", 1 /* x */, 2, 3,
+         Task_New(-1, "LightmapInfo", "obj00042"), "tower_model");
+)QSC";
+    std::string err;
+    LightmapBindingSet set = LightmapBindingSet::parse(qsc, &err);
+    EXPECT_TRUE(err.empty()) << err;
+    const auto* binding = set.bindingForModelAndTaskId("tower_model", 1104);
+    ASSERT_NE(binding, nullptr);
+    EXPECT_EQ(binding->logicalId, "obj00042");
+    EXPECT_TRUE(binding->hasPos);
+    EXPECT_DOUBLE_EQ(binding->posX, 1.0);
+    EXPECT_FALSE(set.logicalIdForModel("fake").has_value());
 }

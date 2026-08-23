@@ -343,3 +343,19 @@ exit codes, recursive directory walker with mixed good/bad inputs, and
 **Description:** The game-facing MCP QSC editor accepted a quoted literal whose final quote was escaped, allowing an edit request to persist malformed QSC source while reporting success.
 
 **Resolution:** QSC literal validation now scans escaped characters and requires an unescaped closing quote at the end of the token. Added a regression test covering the malformed literal and preserving the original output on rejection.
+
+## Bug ID: MCP-Stdio-Unbounded-Frame (PR #19)
+**Description:** MCP stdio framing used `std::getline`, which could allocate an unbounded buffer before the configured 8 MiB message limit was checked.
+**Resolution:** Added bounded byte-by-byte framing that caps input at 8 MiB, discards only the rest of the oversized frame, returns a JSON-RPC parse error, and continues with the next request. Added a regression test proving the next frame is still handled.
+
+## Bug ID: MCP-Lightmap-Partial-Rewrite (PR #19)
+**Description:** Lightmap recalculation could write earlier `.olm` files before a later parse or write failure, leaving a partially updated game asset set.
+**Resolution:** Recalculation now parses and transforms every block first, writes temporary siblings, then commits through same-directory rename with backups and rollback. Any preparation or commit failure leaves the original set intact when rollback succeeds.
+
+## Bug ID: MCP-WorkingDirectory-Leak (PR #19)
+**Description:** A failed or exceptional game-facing MCP command that changed the process cwd could leave later commands executing from an unintended directory.
+**Resolution:** Added a scoped current-directory guard that validates the target, restores the original cwd on every exit path, explicitly restores after failed changes, and reports restoration failure as a command failure.
+
+## Bug ID: MCP-QSC-Block-Comment-Parsing (PR #19)
+**Description:** QSC object and lightmap scanners did not consistently treat block comments as trivia, so commented `Task_New` text or comment punctuation could create false objects, break call nesting, or corrupt extracted positions and names.
+**Resolution:** Centralized comment/string-aware scanning across tokenization, call-span detection, object discovery, lightmap binding, and direct-argument extraction. Added regressions for fake commented calls, inline comments, and comment-bearing literals.

@@ -164,7 +164,10 @@ position, rotation/gamma, model id, team, bone hierarchy, stand animation, or
 an arbitrary validated direct argument for task-specific enemy, weapon, AI,
 and trigger data. Named placement fields are restricted to the known
 `HumanSoldier` layout; other task classes use explicit indexed updates. Every
-write requires an explicit output file.
+write requires an explicit output file. Stdio frames are size-bounded, QSC
+comment scanning is lexical, and `lightmap.recalc` stages all `.olm` outputs
+before committing them so one bad file does not intentionally produce a partial
+game-asset edit.
 
 For the complete MCP contract, operation registry, JSON examples, result
 format, and excluded editor-only surfaces, see [docs/mcp.md](docs/mcp.md).
