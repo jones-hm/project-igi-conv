@@ -134,3 +134,27 @@ TEST(QscObjectEditor, ExposesGamePlacementEditingThroughQscCli) {
     EXPECT_NE(source.find("402, \"HumanSoldier\", \"Bravo\", -10, -20, -30"),
               std::string::npos);
 }
+
+TEST(QscObjectEditor, ExposesAnimationSelectionFieldsThroughQscCli) {
+    TempDir temp;
+    const std::string input = temp / "animated.qsc";
+    const std::string output = temp / "animated-edited.qsc";
+    {
+        std::ofstream file(input, std::ios::binary);
+        ASSERT_TRUE(file.is_open());
+        file << "Task_New(601, \"HumanSoldier\", \"Animated\", 1, 2, 3, 0, "
+                   "\"soldier\", 1, 2, 3);\n";
+    }
+
+    std::string commandOutput;
+    ASSERT_EQ(RunIGI1Conv(
+        "qsc edit-object " + Q(input) + " -o " + Q(output)
+            + " --id 601 --bone-hierarchy 8 --stand-animation 9",
+        &commandOutput), 0) << commandOutput;
+
+    std::ifstream edited(output, std::ios::binary);
+    ASSERT_TRUE(edited.is_open());
+    const std::string source((std::istreambuf_iterator<char>(edited)),
+                             std::istreambuf_iterator<char>());
+    EXPECT_NE(source.find("\"soldier\", 1, 8, 9"), std::string::npos);
+}

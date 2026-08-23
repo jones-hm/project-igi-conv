@@ -17,6 +17,10 @@ struct GameOperation {
 // represented here.
 const std::vector<GameOperation>& GameOperations();
 
+// Returns the registered operation with the given MCP name, or nullptr when
+// the name is not part of the game-facing allowlist.
+const GameOperation* FindGameOperation(const std::string& name);
+
 bool IsAllowedGameCommand(const std::vector<std::string>& argv,
                           std::string& error);
 

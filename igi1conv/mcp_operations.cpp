@@ -102,6 +102,18 @@ const std::vector<GameOperation>& GameOperations() {
     return BuildOperations();
 }
 
+const GameOperation* FindGameOperation(const std::string& name) {
+    const auto& operations = GameOperations();
+    const auto it = std::lower_bound(
+        operations.begin(), operations.end(), name,
+        [](const GameOperation& operation, const std::string& candidate) {
+            return operation.name < candidate;
+        });
+    if (it == operations.end() || it->name != name)
+        return nullptr;
+    return &*it;
+}
+
 bool IsAllowedGameCommand(const std::vector<std::string>& argv, std::string& error) {
     error.clear();
     if (argv.empty()) {

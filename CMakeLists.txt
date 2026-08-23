@@ -39,6 +39,8 @@ file(GLOB IGI1CONV_SOURCES "igi1conv/*.cpp" "igi1conv/*.h")
 list(APPEND IGI1CONV_SOURCES
     "igi1conv/command_dispatch.cpp"
     "igi1conv/mcp_operations.cpp"
+    "igi1conv/mcp_protocol.cpp"
+    "igi1conv/mcp_execution.cpp"
 )
 list(REMOVE_DUPLICATES IGI1CONV_SOURCES)
 if (WIN32)
@@ -67,13 +69,13 @@ endif()
 if (CMAKE_SIZEOF_VOID_P EQUAL 4)
     message("Configuring 32-bit (Win32) build using local Qt 5.15.2")
     set(CMAKE_PREFIX_PATH "${PROJECT_SOURCE_DIR}/5.15.2/msvc2019")
-    find_package(Qt5 COMPONENTS Core Gui Widgets OpenGL REQUIRED)
-    target_link_libraries(igi1conv PRIVATE Qt5::Core Qt5::Gui Qt5::Widgets Qt5::OpenGL)
+    find_package(Qt5 COMPONENTS Core Gui Widgets Network OpenGL REQUIRED)
+    target_link_libraries(igi1conv PRIVATE Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Network Qt5::OpenGL)
 else()
     message("Configuring 64-bit (x64) build using system Qt 6.5.3")
     set(CMAKE_PREFIX_PATH "D:/Qt/6.5.3/msvc2019_64")
-    find_package(Qt6 COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets REQUIRED)
-    target_link_libraries(igi1conv PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets)
+    find_package(Qt6 COMPONENTS Core Gui Widgets Network OpenGL OpenGLWidgets REQUIRED)
+    target_link_libraries(igi1conv PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::OpenGL Qt6::OpenGLWidgets)
 endif()
 # ---------------------------------------
 
@@ -148,6 +150,12 @@ if (IGI1CONV_BUILD_TESTS)
 
     target_link_libraries(igi1conv_tests PRIVATE gtest)
 
+    if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+        target_link_libraries(igi1conv_tests PRIVATE Qt5::Core Qt5::Network)
+    else()
+        target_link_libraries(igi1conv_tests PRIVATE Qt6::Core Qt6::Network)
+    endif()
+
     target_include_directories(igi1conv_tests PRIVATE
         ${PROJECT_SOURCE_DIR}/igi1conv
         ${PROJECT_SOURCE_DIR}/source
@@ -158,6 +166,7 @@ if (IGI1CONV_BUILD_TESTS)
 
     target_sources(igi1conv_tests PRIVATE
         igi1conv/mcp_operations.cpp
+        igi1conv/mcp_protocol.cpp
         source/parsers/qsc_object_editor.cpp
     )
 

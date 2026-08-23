@@ -48,3 +48,11 @@ TEST(McpOperations, AllowsRegisteredGameCommandsAndRejectsEditorOrUnknownCommand
     EXPECT_FALSE(igi1conv::IsAllowedGameCommand({"unknown", "operation"}, error));
     EXPECT_FALSE(error.empty());
 }
+
+TEST(McpOperations, FindsRegisteredOperationByStableName) {
+    const auto* operation = igi1conv::FindGameOperation("qsc.edit-object");
+    ASSERT_NE(operation, nullptr);
+    EXPECT_EQ(operation->commandPrefix, (std::vector<std::string>{"qsc", "edit-object"}));
+    EXPECT_TRUE(operation->writesGame);
+    EXPECT_EQ(igi1conv::FindGameOperation("settings.theme"), nullptr);
+}

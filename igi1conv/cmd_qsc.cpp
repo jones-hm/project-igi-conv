@@ -26,6 +26,8 @@ static void print_help_qsc()
         "  --rotation <gamma>       Set game rotation/gamma (argument 6)\n"
         "  --model-id <id>          Set game model identifier (argument 7)\n"
         "  --team <n>               Set game team/faction (argument 8)\n"
+        "  --bone-hierarchy <n>     Set game bone hierarchy (argument 9)\n"
+        "  --stand-animation <n>    Set game stand animation (argument 10)\n"
         "  --set <index>=<literal>  Set any direct Task_New argument\n"
         "  --help      Show this help\n";
 }
@@ -320,6 +322,14 @@ static int do_edit_object(int argc, char** argv)
             std::string value;
             if (!require_value(i, "--team", value)) return 1;
             updates.push_back({8, std::move(value)});
+        } else if (option == "--bone-hierarchy") {
+            std::string value;
+            if (!require_value(i, "--bone-hierarchy", value)) return 1;
+            updates.push_back({9, std::move(value)});
+        } else if (option == "--stand-animation") {
+            std::string value;
+            if (!require_value(i, "--stand-animation", value)) return 1;
+            updates.push_back({10, std::move(value)});
         } else if (option == "--set") {
             std::string value;
             igi1conv::QscFieldUpdate update;
