@@ -158,6 +158,26 @@ TEST(QscObjectEditor, PreservesCommentsAfterEditedArgumentLiterals) {
     EXPECT_NE(output.find("200 // keep y"), std::string::npos);
 }
 
+TEST(QscObjectEditor, AcceptsBlockCommentsBetweenTaskNameAndOpeningParen) {
+    const std::string source =
+        "Task_New /* call annotation */ (701, /* class annotation */ "
+        "\"HumanSoldier\", \"Commented\", 10, 20, 30, 0.5, \"model\", 1, 2, 3);\n";
+    std::vector<igi1conv::QscTaskSummary> tasks;
+    std::string error;
+    ASSERT_TRUE(igi1conv::ListQscTasks(source, tasks, error)) << error;
+    ASSERT_EQ(tasks.size(), 1u);
+    EXPECT_EQ(tasks[0].taskId, 701);
+    EXPECT_EQ(tasks[0].className, "HumanSoldier");
+
+    igi1conv::QscTaskSelector selector;
+    selector.taskId = 701;
+    std::string output;
+    const auto result = igi1conv::EditQscTasks(source, selector, {{3, "100"}}, output);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_NE(output.find("701, /* class annotation */ \"HumanSoldier\", \"Commented\", 100"),
+              std::string::npos);
+}
+
 TEST(QscObjectEditor, ExposesGamePlacementEditingThroughQscCli) {
     TempDir temp;
     const std::string input = temp / "objects.qsc";

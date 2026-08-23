@@ -350,7 +350,7 @@ exit codes, recursive directory walker with mixed good/bad inputs, and
 
 ## Bug ID: MCP-Lightmap-Partial-Rewrite (PR #19)
 **Description:** Lightmap recalculation could write earlier `.olm` files before a later parse or write failure, leaving a partially updated game asset set.
-**Resolution:** Recalculation now parses and transforms every block first, writes temporary siblings, then commits through same-directory rename with backups and rollback. Any preparation or commit failure leaves the original set intact when rollback succeeds.
+**Resolution:** Recalculation now parses and transforms every block first, writes temporary siblings, then commits through same-directory rename with backups and rollback. Rollback now verifies each restore, includes the currently staged file, and reports failure instead of claiming the original set was restored when a filesystem operation failed.
 
 ## Bug ID: MCP-WorkingDirectory-Leak (PR #19)
 **Description:** A failed or exceptional game-facing MCP command that changed the process cwd could leave later commands executing from an unintended directory.
@@ -358,4 +358,4 @@ exit codes, recursive directory walker with mixed good/bad inputs, and
 
 ## Bug ID: MCP-QSC-Block-Comment-Parsing (PR #19)
 **Description:** QSC object and lightmap scanners did not consistently treat block comments as trivia, so commented `Task_New` text or comment punctuation could create false objects, break call nesting, or corrupt extracted positions and names.
-**Resolution:** Centralized comment/string-aware scanning across tokenization, call-span detection, object discovery, lightmap binding, and direct-argument extraction. Added regressions for fake commented calls, inline comments, and comment-bearing literals.
+**Resolution:** Centralized comment/string-aware scanning across tokenization, call-span detection, object discovery, lightmap binding, direct-argument extraction, and MCP QSC editor call discovery. Added regressions for fake commented calls, inline comments, comment-bearing literals, and comments between `Task_New` and its opening parenthesis.

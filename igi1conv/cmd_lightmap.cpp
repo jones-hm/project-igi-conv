@@ -400,34 +400,41 @@ int do_lightmap_recalc(const RecalcArgs& args) {
     struct CommittedWrite { fs::path target; fs::path backup; };
     std::vector<CommittedWrite> committed;
     committed.reserve(pending.size());
+    auto restoreBackup = [](const CommittedWrite& item) {
+        std::error_code error;
+        fs::remove(item.target, error);
+        if (error) return false;
+        error.clear();
+        fs::rename(item.backup, item.target, error);
+        return !error;
+    };
     auto rollback = [&]() {
+        bool restored = true;
         for (auto it = committed.rbegin(); it != committed.rend(); ++it) {
-            std::error_code ignored;
-            fs::remove(it->target, ignored);
-            fs::rename(it->backup, it->target, ignored);
+            if (!restoreBackup(*it)) restored = false;
         }
+        return restored;
     };
 
     for (const auto& item : pending) {
         std::error_code renameError;
         fs::rename(item.target, item.backup, renameError);
         if (renameError) {
-            rollback();
+            const bool rolledBack = rollback();
             removeTemporaryFiles();
             std::cerr << "lightmap: cannot stage " << item.target << " (" << renameError.message()
-                      << "); no lightmap files were changed\n";
+                      << "); rollback " << (rolledBack ? "completed" : "failed") << "\n";
             return 3;
         }
 
         renameError.clear();
         fs::rename(item.temporary, item.target, renameError);
         if (renameError) {
-            std::error_code restoreError;
-            fs::rename(item.backup, item.target, restoreError);
-            rollback();
+            const bool currentRestored = restoreBackup({item.target, item.backup});
+            const bool priorRolledBack = rollback();
             removeTemporaryFiles();
             std::cerr << "lightmap: cannot commit " << item.target << " (" << renameError.message()
-                      << "); rollback " << (restoreError ? "failed" : "completed") << "\n";
+                      << "); rollback " << (currentRestored && priorRolledBack ? "completed" : "failed") << "\n";
             return 3;
         }
         committed.push_back({item.target, item.backup});

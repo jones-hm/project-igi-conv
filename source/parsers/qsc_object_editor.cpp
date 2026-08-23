@@ -55,7 +55,9 @@ std::size_t SkipTrivia(const std::string& source, std::size_t pos) {
         }
         if (source[pos] == '/' && pos + 1 < source.size() && source[pos + 1] == '*') {
             const auto end = source.find("*/", pos + 2);
-            return end == std::string::npos ? source.size() : end + 2;
+            if (end == std::string::npos) return source.size();
+            pos = end + 2;
+            continue;
         }
         break;
     }
@@ -226,9 +228,7 @@ bool ScanTaskCalls(const std::string& source, std::vector<TaskCall>& calls,
             && (pos + kName.size() == source.size()
                 || IsIdentifierBoundary(source[pos + kName.size()]))) {
             std::size_t openParen = pos + kName.size();
-            while (openParen < source.size()
-                   && std::isspace(static_cast<unsigned char>(source[openParen])))
-                ++openParen;
+            openParen = SkipTrivia(source, openParen);
             if (openParen >= source.size() || source[openParen] != '(') {
                 pos += kName.size();
                 continue;
