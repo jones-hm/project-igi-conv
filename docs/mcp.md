@@ -52,7 +52,9 @@ Never place a real token in source control or a shared command log. HTTP
 rejects an unrecognized `Origin`; clients without a browser Origin may omit
 the header. `initialize` requires `protocolVersion`, `capabilities`, and
 `clientInfo`; an unknown client version negotiates the newest version this
-server supports. The server does not execute a shell and does not accept an
+server supports. Clients must complete `initialize` before calling any other
+method; premature calls receive a JSON-RPC error and do not reach the game
+command dispatcher. The server does not execute a shell and does not accept an
 arbitrary executable path.
 
 ## Protocol discovery
@@ -191,7 +193,10 @@ Literals are one safe QSC token: a finite number, `TRUE`/`FALSE`, or a quoted
 string. Commas, semicolons, newlines, malformed quotes, duplicate indexes,
 and out-of-range indexes are rejected. Nested calls, trailing comments,
 escaped strings, and untouched source formatting are preserved. Output paths
-from generic commands include `-o`, `--output`, `--out`, and `-out` forms.
+from generic commands include `-o`, `--output`, `--out`, and `-out` forms. Any
+generic write command whose output resolves to the input path is rejected; the
+CLI and MCP surfaces require a distinct output path so an automation mistake
+cannot overwrite the source asset in place.
 
 The equivalent CLI commands are:
 

@@ -6,8 +6,11 @@
 #include "cmd_olm.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <cctype>
+#include <cerrno>
 #include <cmath>
 #include <chrono>
+#include <cstdlib>
 
 namespace fs = std::filesystem;
 using igi1conv::LightmapBinding;
@@ -218,14 +221,27 @@ struct RecalcArgs {
 };
 
 // Parse "X,Y,Z" (radians or colors) into a vec3. Returns false on malformed input.
+static bool ParseFiniteFloat(const std::string& text, float& out) {
+    const char* begin = text.c_str();
+    char* end = nullptr;
+    errno = 0;
+    const float value = std::strtof(begin, &end);
+    if (errno == ERANGE || end == begin || !std::isfinite(value)) return false;
+    while (*end != '\0' && std::isspace(static_cast<unsigned char>(*end))) ++end;
+    if (*end != '\0') return false;
+    out = value;
+    return true;
+}
+
 static bool ParseVec3(const std::string& s, glm::vec3& out) {
     std::istringstream iss(s);
     std::string xs, ys, zs;
     if (!std::getline(iss, xs, ',') || !std::getline(iss, ys, ',') || !std::getline(iss, zs, ',')) return false;
-    try {
-        out.x = std::stof(xs); out.y = std::stof(ys); out.z = std::stof(zs);
-    } catch (...) { return false; }
-    return true;
+    std::string extra;
+    if (std::getline(iss, extra, ',')) return false;
+    return ParseFiniteFloat(xs, out.x)
+        && ParseFiniteFloat(ys, out.y)
+        && ParseFiniteFloat(zs, out.z);
 }
 
 // Build the same Rz * Rx * Ry rotation the editor applies to objects

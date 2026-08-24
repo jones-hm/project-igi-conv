@@ -55,6 +55,12 @@ All notable changes to this project will be documented in this file.
 - Capped HTTP header/body reads to the configured message budget, returned
   JSON-RPC `-32600` errors for malformed id-less objects, and sourced the MCP
   server version from the build version definition.
+- Required MCP clients to complete `initialize` before any other method,
+  preserved response-free lifecycle notifications, and returned JSON-RPC parse
+  errors for malformed HTTP request bodies.
+- Rejected in-place output paths for generic write commands, rejected empty
+  direct QSC arguments without shifting indexes, and rejected non-finite or
+  trailing numeric lightmap rotation arguments.
 
 ## [1.11.0] - 2026-06-25
 

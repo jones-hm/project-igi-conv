@@ -36,6 +36,7 @@ public:
 
 private:
     McpCommandExecutor executor_;
+    mutable bool initialized_ = false;
 };
 
 } // namespace igi1conv

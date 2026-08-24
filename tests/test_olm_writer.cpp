@@ -161,6 +161,24 @@ TEST(ResRepack, RejectsUnmatchedDirectoryFiles) {
     EXPECT_FALSE(fs::exists(output));
 }
 
+TEST(LightmapRecalc, RejectsNonFiniteRotationArguments) {
+    TempDir temp;
+    const std::string qsc = temp / "objects.qsc";
+    {
+        std::ofstream file(qsc, std::ios::binary);
+        ASSERT_TRUE(file.is_open());
+        file << "Task_New(701, \"HumanSoldier\", \"SmokeAlpha\", 10, 20, 30, 0, "
+                   "\"soldier_model\", 1, 2, 3);\n";
+    }
+
+    std::string output;
+    const int rc = RunIGI1Conv(
+        "lightmap recalc --model missing --qsc " + Q(qsc)
+            + " --rot-orig nan,nan,nan", &output);
+    EXPECT_NE(rc, 0);
+    EXPECT_NE(output.find("bad --rot-orig"), std::string::npos) << output;
+}
+
 // ─── lightmap recalc ────────────────────────────────────────────────────────
 
 // Discover a level dir under the corpus that has BOTH a decompiled objects.qsc

@@ -8,12 +8,42 @@
 #include <charconv>
 #include <chrono>
 #include <cstdio>
+#include <cctype>
+#include <algorithm>
 #include <filesystem>
 #include <system_error>
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
+
+static bool paths_refer_to_same_location(const std::string& left,
+                                         const std::string& right) {
+    if (left.empty() || right.empty()) return false;
+    std::error_code error;
+    if (std::filesystem::equivalent(std::filesystem::path(left),
+                                     std::filesystem::path(right), error))
+        return true;
+
+    error.clear();
+    auto normalize = [&error](const std::string& value) {
+        std::filesystem::path path = std::filesystem::absolute(value, error);
+        if (error) {
+            error.clear();
+            path = std::filesystem::path(value);
+        }
+        path = path.lexically_normal();
+        std::string result = path.generic_string();
+#ifdef _WIN32
+        std::transform(result.begin(), result.end(), result.begin(),
+                       [](unsigned char character) {
+                           return static_cast<char>(std::tolower(character));
+                       });
+#endif
+        return result;
+    };
+    return normalize(left) == normalize(right);
+}
 
 static void print_help_qsc()
 {
@@ -188,6 +218,11 @@ static int do_compile(int argc, char** argv)
 
     if (output.empty()) {
         std::cerr << "igi1conv qsc compile: missing -o <output.qvm>\n";
+        return 1;
+    }
+    if (paths_refer_to_same_location(input, output)) {
+        std::cerr << "igi1conv qsc compile: input and output paths must differ; "
+                     "in-place editing is not supported\n";
         return 1;
     }
 
@@ -401,9 +436,7 @@ static int do_edit_object(int argc, char** argv)
         return 1;
     }
 
-    std::error_code pathError;
-    if (std::filesystem::equivalent(std::filesystem::path(input),
-                                    std::filesystem::path(output), pathError)) {
+    if (paths_refer_to_same_location(input, output)) {
         std::cerr << "igi1conv qsc edit-object: input and output paths must differ; "
                      "in-place editing is not supported\n";
         return 1;

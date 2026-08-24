@@ -44,6 +44,7 @@ function Json-Line($Object) {
 $fixture = Join-Path $root "tests\fixtures\mcp_game_objects.qsc"
 Assert-Condition (Test-Path -LiteralPath $fixture) "MCP fixture is missing: $fixture"
 $objectOutput = Join-Path ([System.IO.Path]::GetTempPath()) ("igi1conv_mcp_smoke_" + [guid]::NewGuid().ToString("N") + ".qsc")
+$weaponOutput = Join-Path ([System.IO.Path]::GetTempPath()) ("igi1conv_mcp_weapon_smoke_" + [guid]::NewGuid().ToString("N") + ".qsc")
 
 # Real stdio process: lifecycle, tool discovery, and a game-data operation.
 $stdio = Start-Child @("mcp", "--transport", "stdio")
@@ -75,10 +76,25 @@ try {
             }
         }
     }
+    $weaponCall = [ordered]@{
+        jsonrpc = "2.0"; id = 4; method = "tools/call"
+        params = [ordered]@{
+            name = "igi_game_object_edit"
+            arguments = [ordered]@{
+                input_file = $fixture; output_file = $weaponOutput
+                selector = [ordered]@{ task_id = 702 }
+                updates = @(
+                    [ordered]@{ direct_index = 7; literal = '"rocket_launcher"' }
+                    [ordered]@{ direct_index = 8; literal = '12' }
+                )
+            }
+        }
+    }
     $stdio.StandardInput.WriteLine((Json-Line $initialize))
     $stdio.StandardInput.WriteLine((Json-Line $initialized))
     $stdio.StandardInput.WriteLine((Json-Line $call))
     $stdio.StandardInput.WriteLine((Json-Line $objectCall))
+    $stdio.StandardInput.WriteLine((Json-Line $weaponCall))
     $stdio.StandardInput.Close()
     $stderrTask = $stdio.StandardError.ReadToEndAsync()
     $stdout = $stdio.StandardOutput.ReadToEnd()
@@ -86,7 +102,7 @@ try {
     $stdio.WaitForExit()
     Assert-Condition ($stdio.ExitCode -eq 0) "stdio server failed: $stderr"
     $responses = @($stdout -split "`r?`n" | Where-Object { $_.Length -gt 0 } | ForEach-Object { $_ | ConvertFrom-Json })
-    Assert-Condition ($responses.Count -eq 3) "stdio response count was $($responses.Count)"
+    Assert-Condition ($responses.Count -eq 4) "stdio response count was $($responses.Count)"
     Assert-Condition ($responses[0].result.protocolVersion -eq "2025-11-25") "stdio initialize negotiation failed"
     Assert-Condition ($responses[1].result.structuredContent.exit_code -eq 0) "real game operation failed: $($responses[1] | ConvertTo-Json -Depth 20)"
     Assert-Condition ($responses[1].result.structuredContent.stdout.Contains("SmokeAlpha")) "real QSC listing did not reach the game operation"
@@ -95,11 +111,17 @@ try {
     $editedText = Get-Content -LiteralPath $objectOutput -Raw
     Assert-Condition ($editedText.Contains('701, "HumanSoldier", "SmokeAlpha", 100, 200, 300, 1.25, "updated_model", 3')) "real game object edit did not apply position/rotation/model/team"
     Assert-Condition ($editedText.Contains('702, "Weapon", "SmokeRifle"')) "real game object edit changed unrelated game data"
+    Assert-Condition ($responses[3].result.structuredContent.exit_code -eq 0) "real generic game object edit failed: $($responses[3] | ConvertTo-Json -Depth 20)"
+    Assert-Condition (Test-Path -LiteralPath $weaponOutput) "real generic game object edit did not create its explicit output"
+    $weaponEditedText = Get-Content -LiteralPath $weaponOutput -Raw
+    Assert-Condition ($weaponEditedText.Contains('701, "HumanSoldier", "SmokeAlpha", 10, 20, 30, 0, "soldier_model", 1, 2, 3')) "generic game object edit changed unrelated HumanSoldier data"
+    Assert-Condition ($weaponEditedText.Contains('702, "Weapon", "SmokeRifle", 1, 2, 3, 0, "rocket_launcher", 12')) "real generic game object edit did not apply indexed Weapon updates"
     Write-Output "stdio: PASS"
 }
 finally {
     if ($stdio -and -not $stdio.HasExited) { $stdio.Kill(); $stdio.WaitForExit() }
     if (Test-Path -LiteralPath $objectOutput) { Remove-Item -LiteralPath $objectOutput -Force }
+    if (Test-Path -LiteralPath $weaponOutput) { Remove-Item -LiteralPath $weaponOutput -Force }
 }
 
 # Real Streamable HTTP process: successful localhost request and Origin guard.

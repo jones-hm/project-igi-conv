@@ -8,12 +8,15 @@
 #include <QString>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <filesystem>
 #include <initializer_list>
 #include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <utility>
 
 #ifndef IGI1CONV_VERSION
@@ -204,6 +207,45 @@ std::vector<std::string> OutputPaths(const std::vector<std::string>& command) {
     return result;
 }
 
+std::string NormalizedPathForComparison(const std::string& value) {
+    std::error_code error;
+    std::filesystem::path path = std::filesystem::absolute(value, error);
+    if (error) path = std::filesystem::path(value);
+    path = path.lexically_normal();
+    std::string normalized = path.generic_string();
+#ifdef _WIN32
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                   [](unsigned char character) {
+                       return static_cast<char>(std::tolower(character));
+                   });
+#endif
+    return normalized;
+}
+
+bool SamePath(const std::string& left, const std::string& right) {
+    if (left.empty() || right.empty()) return false;
+    std::error_code error;
+    if (std::filesystem::equivalent(std::filesystem::path(left),
+                                     std::filesystem::path(right), error))
+        return true;
+    return NormalizedPathForComparison(left) == NormalizedPathForComparison(right);
+}
+
+bool RejectInPlaceOutput(const std::string& input, const std::string& output,
+                         QString& error) {
+    if (!SamePath(input, output)) return true;
+    error = QStringLiteral("input and output paths must differ; in-place game writes are not supported");
+    return false;
+}
+
+bool RejectInPlaceCommandOutput(const std::vector<std::string>& command, QString& error) {
+    if (command.size() < 3) return true;
+    for (const auto& output : OutputPaths(command)) {
+        if (!RejectInPlaceOutput(command[2], output, error)) return false;
+    }
+    return true;
+}
+
 QJsonObject ExecutionToolResult(const McpExecutionResult& execution,
                                 const std::vector<std::string>& command) {
     QJsonObject structured;
@@ -331,6 +373,8 @@ std::optional<QJsonObject> HandleGameCommand(const QJsonObject& arguments,
     std::string validationError;
     if (!IsAllowedGameCommand(command, validationError))
         return ResultResponse(id, ToolError(ToQString(validationError)));
+    if (!RejectInPlaceCommandOutput(command, error))
+        return ResultResponse(id, ToolError(error));
 
     std::string workingDirectory;
     if (!ReadString(arguments, "working_directory", workingDirectory, error, false))
@@ -375,6 +419,8 @@ std::optional<QJsonObject> HandleGameObjectEdit(const QJsonObject& arguments,
     std::string output;
     if (!ReadString(arguments, "input_file", input, error)
         || !ReadString(arguments, "output_file", output, error))
+        return ResultResponse(id, ToolError(error));
+    if (!RejectInPlaceOutput(input, output, error))
         return ResultResponse(id, ToolError(error));
 
     const QJsonValue selectorValue = arguments.value("selector");
@@ -521,7 +567,10 @@ std::optional<QJsonObject> McpDispatcher::Handle(const QJsonObject& request) con
         return finish(ErrorResponse(id, -32600, QStringLiteral("method must be a string")));
     const QString method = methodValue.toString();
 
-    if (method == QStringLiteral("notifications/initialized"))
+    // JSON-RPC notifications never receive a response, even if a client sends
+    // the lifecycle notification out of order. It must not mark the server as
+    // initialized; only a valid initialize request does that.
+    if (method == QStringLiteral("notifications/initialized") && !initialized_)
         return std::nullopt;
 
     const QJsonObject params = request.value("params").isObject()
@@ -553,8 +602,15 @@ std::optional<QJsonObject> McpDispatcher::Handle(const QJsonObject& request) con
         result.insert("capabilities", capabilities);
         result.insert("serverInfo", serverInfo);
         result.insert("instructions", "Game-facing Project IGI asset editing only.");
+        initialized_ = true;
         return finish(ResultResponse(id, result));
     }
+
+    if (!initialized_)
+        return finish(ErrorResponse(id, -32002, QStringLiteral("server is not initialized")));
+
+    if (method == QStringLiteral("notifications/initialized"))
+        return std::nullopt;
 
     if (method == QStringLiteral("ping"))
         return finish(ResultResponse(id, QJsonObject{}));

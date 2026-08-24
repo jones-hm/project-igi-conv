@@ -104,6 +104,23 @@ TEST(QscObjectEditor, RejectsAmbiguousOrMalformedWritesWithoutChangingOutput) {
     EXPECT_NE(result.error.find("parenthesis"), std::string::npos);
 }
 
+TEST(QscObjectEditor, RejectsEmptyDirectArgumentsWithoutIndexDrift) {
+    const std::string malformed =
+        "Task_New(701, , \"HumanSoldier\", \"Broken\", 10, 20, 30, 0, "
+        "\"model\", 1, 2, 3);\n";
+    std::vector<igi1conv::QscTaskSummary> tasks;
+    std::string error;
+    EXPECT_FALSE(igi1conv::ListQscTasks(malformed, tasks, error));
+    EXPECT_TRUE(error.find("empty direct argument") != std::string::npos) << error;
+
+    igi1conv::QscTaskSelector selector;
+    selector.taskId = 701;
+    std::string output = "sentinel";
+    const auto result = igi1conv::EditQscTasks(malformed, selector, {{3, "99"}}, output);
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(output, malformed);
+}
+
 TEST(QscObjectEditor, RejectsUnsafeMultiTokenLiterals) {
     igi1conv::QscTaskSelector selector;
     selector.taskId = 401;

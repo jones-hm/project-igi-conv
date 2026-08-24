@@ -107,7 +107,22 @@ bool ParseArguments(const std::string& source, std::size_t openParen,
                     std::string& error) {
     arguments.clear();
     std::size_t pos = SkipTrivia(source, openParen + 1);
-    while (pos < closeParen) {
+    bool expectArgument = true;
+    while (true) {
+        pos = SkipTrivia(source, pos);
+        if (pos >= closeParen) {
+            if (expectArgument) {
+                error = arguments.empty()
+                    ? "Task_New call has no direct arguments"
+                    : "empty direct argument in Task_New call";
+                return false;
+            }
+            break;
+        }
+        if (source[pos] == ',') {
+            error = "empty direct argument in Task_New call";
+            return false;
+        }
         const std::size_t begin = pos;
         std::size_t end = pos;
         int nestedDepth = 0;
@@ -190,10 +205,15 @@ bool ParseArguments(const std::string& source, std::size_t openParen,
         while (literalEnd > begin
                && std::isspace(static_cast<unsigned char>(source[literalEnd - 1])))
             --literalEnd;
-        if (begin < literalEnd)
-            arguments.push_back({begin, literalEnd});
+        if (begin >= literalEnd) {
+            error = "empty direct argument in Task_New call";
+            return false;
+        }
+        arguments.push_back({begin, literalEnd});
 
+        expectArgument = terminated;
         pos = SkipTrivia(source, pos);
+        if (!terminated) break;
     }
     return true;
 }

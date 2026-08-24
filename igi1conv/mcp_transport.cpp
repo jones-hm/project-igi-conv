@@ -381,8 +381,11 @@ int RunMcpHttp(const McpDispatcher& dispatcher, const McpHttpOptions& options) {
                 QJsonParseError parseError;
                 const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
                 if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-                    WriteHttpResponse(*socket, 400, ErrorBody(QStringLiteral("invalid JSON-RPC body")),
-                                      "application/json", origin);
+                    const QByteArray responseBody = QJsonDocument(
+                        JsonRpcError(QJsonValue(QJsonValue::Null), -32700,
+                                     QStringLiteral("invalid JSON-RPC body")))
+                        .toJson(QJsonDocument::Compact);
+                    WriteHttpResponse(*socket, 400, responseBody, "application/json", origin);
                 } else {
                     bool protocolVersionValid = true;
                     const QByteArray protocolVersion = HttpProtocolVersion(

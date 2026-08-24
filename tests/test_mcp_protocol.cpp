@@ -28,6 +28,17 @@ QJsonObject ToolCall(int id, const char* name, const QJsonObject& arguments) {
     return Request(id, "tools/call", params);
 }
 
+bool Initialize(igi1conv::McpDispatcher& dispatcher, int id = 100) {
+    const auto response = dispatcher.Handle(Request(id, "initialize", [] {
+        return QJsonObject{
+            {"protocolVersion", "2025-11-25"},
+            {"capabilities", QJsonObject{}},
+            {"clientInfo", QJsonObject{{"name", "test"}, {"version", "1"}}},
+        };
+    }()));
+    return response.has_value() && response->value("error").isUndefined();
+}
+
 } // namespace
 
 TEST(McpProtocol, InitializesListsOnlyGameFacingToolsAndExposesCapabilities) {
@@ -87,6 +98,7 @@ TEST(McpProtocol, ExecutesRegisteredGameCommandAndShapesStructuredResult) {
             actualWorkingDirectory = workingDirectory;
             return igi1conv::McpExecutionResult{0, "texture information", ""};
         });
+    ASSERT_TRUE(Initialize(dispatcher));
 
     QJsonObject arguments;
     arguments.insert("command", "tex.info");
@@ -119,6 +131,7 @@ TEST(McpProtocol, RejectsEditorOnlyCommandsAndMalformedToolArguments) {
         [](const std::vector<std::string>&, const std::string&) {
             return igi1conv::McpExecutionResult{0, "unexpected", ""};
         });
+    ASSERT_TRUE(Initialize(dispatcher));
 
     QJsonObject invalidCommand;
     invalidCommand.insert("command", "settings.theme");
@@ -148,6 +161,7 @@ TEST(McpProtocol, ReportsNonzeroCommandExitAndSupportsTypedGameObjectEditing) {
                 return igi1conv::McpExecutionResult{0, "edited", ""};
             return igi1conv::McpExecutionResult{3, "", "parse failed"};
         });
+    ASSERT_TRUE(Initialize(dispatcher));
 
     QJsonObject failedArgs;
     failedArgs.insert("command", "qsc.validate");
@@ -186,6 +200,7 @@ TEST(McpProtocol, ReportsNonzeroCommandExitAndSupportsTypedGameObjectEditing) {
 
 TEST(McpProtocol, HandlesNotificationsAndUnknownMethodsAccordingToJsonRpc) {
     igi1conv::McpDispatcher dispatcher;
+    ASSERT_TRUE(Initialize(dispatcher));
 
     QJsonObject notification;
     notification.insert("jsonrpc", "2.0");
@@ -209,6 +224,7 @@ TEST(McpProtocol, RejectsWrongTypesForTypedGameObjectFields) {
             executed = true;
             return igi1conv::McpExecutionResult{0, "unexpected", ""};
         });
+    ASSERT_TRUE(Initialize(dispatcher));
 
     QJsonObject arguments;
     arguments.insert("input_file", "objects.qsc");
@@ -229,6 +245,7 @@ TEST(McpProtocol, RejectsUnknownFieldsDeclaredInvalidBySchemas) {
             executed = true;
             return igi1conv::McpExecutionResult{0, "unexpected", ""};
         });
+    ASSERT_TRUE(Initialize(dispatcher));
 
     QJsonObject commandArgs{{"command", "tex.info"}, {"args", QJsonArray{}},
                             {"camera", "editor-only"}};
@@ -257,6 +274,7 @@ TEST(McpProtocol, RejectsNamedPlacementFieldsForNonHumanSoldierSelector) {
         [](const std::vector<std::string>&, const std::string&) {
             return igi1conv::McpExecutionResult{0, "unexpected", ""};
         });
+    ASSERT_TRUE(Initialize(dispatcher));
     QJsonObject arguments{{"input_file", "objects.qsc"}, {"output_file", "edited.qsc"},
                           {"selector", QJsonObject{{"class_name", "Weapon"}}},
                           {"model_id", "rifle"}};
@@ -278,4 +296,54 @@ TEST(McpProtocol, NegotiatesToSupportedVersionForNewerClient) {
     ASSERT_TRUE(response.has_value());
     EXPECT_EQ(response->value("result").toObject().value("protocolVersion").toString(),
               "2025-11-25");
+}
+
+TEST(McpProtocol, RequiresInitializeBeforeTools) {
+    bool executed = false;
+    igi1conv::McpDispatcher dispatcher(
+        [&](const std::vector<std::string>&, const std::string&) {
+            executed = true;
+            return igi1conv::McpExecutionResult{0, "unexpected", ""};
+        });
+
+    const auto beforeInitialize = dispatcher.Handle(Request(20, "tools/list"));
+    ASSERT_TRUE(beforeInitialize.has_value());
+    EXPECT_EQ(beforeInitialize->value("error").toObject().value("code").toInt(), -32002);
+    EXPECT_FALSE(executed);
+    ASSERT_TRUE(Initialize(dispatcher, 21));
+    const auto afterInitialize = dispatcher.Handle(Request(22, "tools/list"));
+    ASSERT_TRUE(afterInitialize.has_value());
+    EXPECT_TRUE(afterInitialize->value("result").toObject().value("tools").isArray());
+}
+
+TEST(McpProtocol, PreInitializeLifecycleNotificationRemainsSilent) {
+    igi1conv::McpDispatcher dispatcher;
+    const QJsonObject notification{{"jsonrpc", "2.0"},
+                                   {"method", "notifications/initialized"}};
+    EXPECT_FALSE(dispatcher.Handle(notification).has_value());
+
+    const auto beforeInitialize = dispatcher.Handle(Request(24, "tools/list"));
+    ASSERT_TRUE(beforeInitialize.has_value());
+    EXPECT_EQ(beforeInitialize->value("error").toObject().value("code").toInt(), -32002);
+}
+
+TEST(McpProtocol, RejectsInPlaceGameCommandOutputBeforeExecution) {
+    bool executed = false;
+    igi1conv::McpDispatcher dispatcher(
+        [&](const std::vector<std::string>&, const std::string&) {
+            executed = true;
+            return igi1conv::McpExecutionResult{0, "unexpected", ""};
+        });
+    ASSERT_TRUE(Initialize(dispatcher));
+
+    const QJsonObject arguments{
+        {"command", "qsc.compile"},
+        {"args", QJsonArray{"objects.qsc", "-o", "objects.qsc"}},
+    };
+    const auto response = dispatcher.Handle(ToolCall(23, "igi_game_command", arguments));
+    ASSERT_TRUE(response.has_value());
+    EXPECT_TRUE(response->value("result").toObject().value("isError").toBool());
+    EXPECT_TRUE(response->value("result").toObject().value("structuredContent")
+                    .toObject().value("error").toString().contains("differ"));
+    EXPECT_FALSE(executed);
 }
