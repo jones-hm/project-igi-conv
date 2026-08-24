@@ -110,6 +110,18 @@ Task_New(
     EXPECT_EQ(set.entries[0].standAnimation, -1);  // -1 means "no anim"
 }
 
+TEST(QscObjectParser, AcceptsBlockCommentsBetweenTaskNameAndOpeningParen) {
+    const std::string qsc = R"QSC(
+Task_New /* call annotation */ (701, "HumanSoldier", "Commented", 10.0, 20.0, 30.0, 0.5, "013_01_1", 3, 4, 5);
+)QSC";
+    std::string err;
+    QscObjectSet set = QscObjectSet::parse(qsc, &err);
+    EXPECT_TRUE(err.empty()) << err;
+    ASSERT_EQ(set.entries.size(), 1u);
+    EXPECT_EQ(set.entries[0].name, "Commented");
+    EXPECT_EQ(set.entries[0].modelId, "013_01_1");
+}
+
 TEST(QscObjectParser, NestedHumanSoldierInsideContainer) {
     // Real IGI1 QSC has the layout:
     //   Task_New(<container-id>, "<ContainerClass>", ...,

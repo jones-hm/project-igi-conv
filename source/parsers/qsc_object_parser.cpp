@@ -298,9 +298,9 @@ QscObjectSet QscObjectSet::parse(const std::string& qscText, std::string* err) {
                           && qscText[p - 1] != '_');
         if (!leftOk) { searchFrom = p + needle.size(); continue; }
         size_t parenPos = p + needle.size();
-        // skip whitespace
-        while (parenPos < qscText.size()
-               && std::isspace(static_cast<unsigned char>(qscText[parenPos]))) ++parenPos;
+        // Skip whitespace and comments between the call name and its
+        // opening parenthesis, just as we do while tokenising arguments.
+        if (!skipTrivia(qscText, parenPos, err)) break;
         if (parenPos >= qscText.size() || qscText[parenPos] != '(') {
             searchFrom = p + needle.size();
             continue;
