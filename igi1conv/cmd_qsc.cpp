@@ -7,6 +7,7 @@
 
 #include <charconv>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <system_error>
 
@@ -89,7 +90,9 @@ static bool write_file(const std::string& path, const std::string& source)
     replaced = MoveFileExW(temporary.wstring().c_str(), target.wstring().c_str(),
                            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
 #else
-    replaced = std::rename(temporary.string().c_str(), target.string().c_str()) == 0;
+    std::error_code renameError;
+    std::filesystem::rename(temporary, target, renameError);
+    replaced = !renameError;
 #endif
     if (!replaced) {
         std::cerr << "igi1conv qsc: cannot replace '" << path << "' atomically\n";

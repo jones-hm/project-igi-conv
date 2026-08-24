@@ -359,3 +359,7 @@ exit codes, recursive directory walker with mixed good/bad inputs, and
 ## Bug ID: MCP-QSC-Block-Comment-Parsing (PR #19)
 **Description:** QSC object and lightmap scanners did not consistently treat block comments as trivia, so commented `Task_New` text or comment punctuation could create false objects, break call nesting, or corrupt extracted positions and names.
 **Resolution:** Centralized comment/string-aware scanning across tokenization, call-span detection, object discovery, lightmap binding, direct-argument extraction, and MCP QSC editor call discovery. Added regressions for fake commented calls, inline comments, comment-bearing literals, and comments between `Task_New` and its opening parenthesis.
+
+## Bug ID: MCP-QSC-TaskNew-Trivia-Gap (PR #19)
+**Description:** The HumanSoldier parser skipped only whitespace after `Task_New`, so a valid call written as `Task_New /* annotation */ (...)` was silently omitted even though the shared trivia scanner already understood block comments.
+**Resolution:** Reused `skipTrivia()` before the opening-parenthesis check and added a regression test asserting that the commented call is parsed with its object name and model ID intact.
