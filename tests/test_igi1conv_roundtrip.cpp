@@ -192,5 +192,8 @@ TEST_F(IGI1ConvTest, UnknownSubcommandReturnsNonZero) {
     EXPECT_NE(RunIGI1Conv("tex bogus somefile"), 0);
 }
 TEST_F(IGI1ConvTest, NoArgsReturnsNonZero) {
-    EXPECT_NE(RunIGI1Conv(""), 0);
+    // No arguments intentionally launches the GUI.  Bound this headless
+    // probe so the test does not wait the helper's full process timeout for
+    // an interactive window that cannot be exercised by the CLI suite.
+    EXPECT_NE(RunIGI1Conv("", nullptr, 1000), 0);
 }
