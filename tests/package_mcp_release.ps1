@@ -76,8 +76,8 @@ if (Test-Path -LiteralPath $zip) {
 }
 Compress-Archive -Path (Join-Path $bundle '*') -DestinationPath $zip -CompressionLevel Optimal -Force
 
-$converterAsset = Join-Path $output "$bundleName-converter.exe"
-$testsAsset = Join-Path $output "$bundleName-tests.exe"
+$converterAsset = Join-Path $output "igi1conv-v$Version-win-x64.exe"
+$testsAsset = Join-Path $output "igi1conv_tests-v$Version-win-x64.exe"
 Copy-Item -LiteralPath (Join-Path $source 'igi1conv.exe') -Destination $converterAsset -Force
 Copy-Item -LiteralPath (Join-Path $source 'igi1conv_tests.exe') -Destination $testsAsset -Force
 
