@@ -159,6 +159,26 @@ TEST(QscObjectEditor, RejectsQuotedLiteralsWithEscapedClosingQuote) {
     EXPECT_NE(result.error.find("literal"), std::string::npos);
 }
 
+TEST(QscObjectEditor, DoesNotMatchUnparseableTaskIdAsMinusOne) {
+    const std::string source =
+        "Task_New(unknown_id, \"HumanSoldier\", \"BrokenId\", 10, 20, 30, 0, \"model\", 1, 2, 3);\n";
+    igi1conv::QscTaskSelector selector;
+    selector.taskId = -1;
+    std::string output;
+    const auto result = igi1conv::EditQscTasks(source, selector, {{3, "99"}}, output);
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.matchedCalls, 0u);
+    EXPECT_EQ(output, source);
+}
+
+TEST(QscObjectEditor, ReportsNoTasksAsAnError) {
+    std::vector<igi1conv::QscTaskSummary> tasks;
+    std::string error;
+    EXPECT_FALSE(igi1conv::ListQscTasks("// no game tasks\n", tasks, error));
+    EXPECT_EQ(error, "no Task_New calls found");
+    EXPECT_TRUE(tasks.empty());
+}
+
 TEST(QscObjectEditor, PreservesCommentsAfterEditedArgumentLiterals) {
     const std::string source =
         "Task_New(701, \"HumanSoldier\", \"Commented\", 10 /* keep x */, "

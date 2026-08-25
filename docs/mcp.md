@@ -31,9 +31,10 @@ It returns JSON responses for request/response calls and mirrors the negotiated
 refused. Put an HTTPS reverse proxy in front of a
 loopback listener when remote access is required.
 
-For a loopback listener that should require a bearer token, add
-`--auth-token <secret>`; never place a real token in source control or a
-shared command log.
+For a loopback listener that should require a bearer token, set
+`IGI1CONV_MCP_TOKEN` in the server environment. `--auth-token <secret>` remains
+available for local development, but exposes the token in the process command
+line. Never place a real token in source control or a shared command log.
 
 Browser clients may send an `OPTIONS` preflight to `/mcp`. An allowed Origin
 receives `204 No Content` with `Access-Control-Allow-Methods: POST, OPTIONS`

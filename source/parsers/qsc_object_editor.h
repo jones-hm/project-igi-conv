@@ -25,6 +25,7 @@ struct QscFieldUpdate {
 
 struct QscTaskSummary {
     int32_t taskId = -1;
+    bool taskIdParsed = false;
     std::string className;
     std::string objectName;
     std::vector<std::string> directArguments;

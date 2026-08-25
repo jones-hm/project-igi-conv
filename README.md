@@ -155,7 +155,7 @@ igi1conv mcp --transport http --host 127.0.0.1 --port 8765
 HTTP validates `Origin` and serves plain HTTP on loopback only. Non-loopback
 binds are refused; use an HTTPS reverse proxy in front of a loopback listener
 for remote access. Use `--origin` to provide an explicit Origin allowlist.
-Browser clients can use the authenticated `OPTIONS` preflight; allowed
+Browser clients can send an unauthenticated `OPTIONS` preflight; allowed
 Origins receive only the documented POST/OPTIONS and MCP/auth/session header
 permissions. The MCP endpoint is `/mcp` by default.
 

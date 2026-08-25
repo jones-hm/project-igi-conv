@@ -10,6 +10,8 @@ struct OperationSeed {
     const char* description;
     bool writesGame;
     std::initializer_list<const char*> commandPrefix;
+    std::initializer_list<std::size_t> inputPositions;
+    std::initializer_list<const char*> inputOptions;
 };
 
 const std::vector<GameOperation>& BuildOperations() {
@@ -38,7 +40,7 @@ const std::vector<GameOperation>& BuildOperations() {
             // Do not expose that destructive form through MCP.
             {"lightmap.resolve", "Resolve game lightmap files for a placed model", false, {"lightmap", "resolve"}},
             {"mef.build-rigid", "Build a game rigid mesh from an attached model", true, {"mef", "build-rigid"}},
-            {"mef.bundle", "Bundle a game mesh with its game textures", true, {"mef", "bundle"}},
+            {"mef.bundle", "Bundle a game mesh with its game textures", true, {"mef", "bundle"}, {2}, {"--dat", "--texdir"}},
             {"mef.compile", "Compile edited text mesh data into a game MEF", true, {"mef", "compile"}},
             {"mef.dump", "Inspect game mesh structure", false, {"mef", "dump"}},
             {"mef.export", "Export game mesh geometry for inspection or editing", false, {"mef", "export"}},
@@ -49,7 +51,7 @@ const std::vector<GameOperation>& BuildOperations() {
             // mtp repair/sync also write their input file in place; they are
             // covered by the CLI/live matrix, not the MCP registry.
             {"mtp.to-dat", "Compile a game MTP package into DAT mappings", true, {"mtp", "to-dat"}},
-            {"olm.from-png", "Build a game OLM lightmap from edited image data", true, {"olm", "from-png"}},
+            {"olm.from-png", "Build a game OLM lightmap from edited image data", true, {"olm", "from-png"}, {2}, {"--template"}},
             {"olm.info", "Inspect a game OLM lightmap", false, {"olm", "info"}},
             {"olm.to-png", "Export a game OLM lightmap for inspection or editing", false, {"olm", "to-png"}},
             {"olm.to-tga", "Export a game OLM lightmap for inspection or editing", false, {"olm", "to-tga"}},
@@ -60,12 +62,12 @@ const std::vector<GameOperation>& BuildOperations() {
             {"qvm.decompile", "Decompile game script bytecode for editing", false, {"qvm", "decompile"}},
             {"qvm.disasm", "Inspect game script bytecode instructions", false, {"qvm", "disasm"}},
             {"qvm.info", "Inspect game script bytecode metadata", false, {"qvm", "info"}},
-            {"res.append", "Append edited game assets to a resource archive", true, {"res", "append"}},
+            {"res.append", "Append edited game assets to a resource archive", true, {"res", "append"}, {2}},
             {"res.compile", "Compile a game resource script into an archive", true, {"res", "compile"}},
             {"res.extract", "Extract game resource archive entries for editing", false, {"res", "extract"}},
             {"res.list", "List game resource archive entries", false, {"res", "list"}},
             {"res.pack", "Pack edited game assets into a resource archive", true, {"res", "pack"}},
-            {"res.repack", "Repack a game resource archive while preserving entry names", true, {"res", "repack"}},
+            {"res.repack", "Repack a game resource archive while preserving entry names", true, {"res", "repack"}, {2, 3}},
             {"res.unpack", "Unpack a game resource archive for editing", false, {"res", "unpack"}},
             {"terrain.export-ctr", "Export game terrain cube data for inspection or editing", false, {"terrain", "export-ctr"}},
             {"terrain.export-lmp", "Export game terrain light data for inspection or editing", false, {"terrain", "export-lmp"}},
@@ -89,6 +91,10 @@ const std::vector<GameOperation>& BuildOperations() {
             operation.writesGame = seed.writesGame;
             for (const char* part : seed.commandPrefix)
                 operation.commandPrefix.emplace_back(part);
+            for (const auto position : seed.inputPositions)
+                operation.inputPositions.push_back(position);
+            for (const char* option : seed.inputOptions)
+                operation.inputOptions.emplace_back(option);
             result.push_back(std::move(operation));
         }
         std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {

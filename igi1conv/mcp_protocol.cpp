@@ -245,6 +245,22 @@ bool SamePath(const std::string& left, const std::string& right,
         == NormalizedPathForComparison(right, workingDirectory);
 }
 
+bool SameOrDescendantPath(const std::string& input, const std::string& output,
+                          const std::string& workingDirectory) {
+    if (SamePath(input, output, workingDirectory)) return true;
+    std::filesystem::path resolvedInput(input);
+    if (resolvedInput.is_relative() && !workingDirectory.empty())
+        resolvedInput = std::filesystem::path(workingDirectory) / resolvedInput;
+    std::error_code error;
+    if (!std::filesystem::is_directory(resolvedInput, error) || error)
+        return false;
+    const std::string inputPath = NormalizedPathForComparison(input, workingDirectory);
+    const std::string outputPath = NormalizedPathForComparison(output, workingDirectory);
+    return outputPath.size() > inputPath.size()
+        && outputPath.compare(0, inputPath.size(), inputPath) == 0
+        && outputPath[inputPath.size()] == '/';
+}
+
 bool RejectInPlaceOutput(const std::string& input, const std::string& output,
                          const std::string& workingDirectory, QString& error) {
     if (!SamePath(input, output, workingDirectory)) return true;
@@ -252,15 +268,34 @@ bool RejectInPlaceOutput(const std::string& input, const std::string& output,
     return false;
 }
 
-std::vector<std::string> InputPathsForOperation(const std::string& operationName,
+std::vector<std::string> InputPathsForOperation(const GameOperation& operation,
                                                 const std::vector<std::string>& command) {
-    if (command.size() < 3) return {};
-    if (operationName == "iff.convert" || operationName == "iff.create"
-        || operationName == "iff.emit-qsc" || operationName == "iff.rebuild"
-        || operationName == "mef.build-rigid" || operationName == "res.pack"
-        || operationName == "res.unpack")
-        return {command[2]};
-    return {command[2]};
+    std::vector<std::string> inputs;
+    const auto positions = operation.inputPositions.empty()
+        ? std::vector<std::size_t>{2} : operation.inputPositions;
+    for (const auto position : positions) {
+        if (position < command.size() && !command[position].empty())
+            inputs.push_back(command[position]);
+    }
+
+    // res append accepts a variable number of source files before -o and
+    // --prefix.  Keep those positional sources in the same collision check.
+    if (operation.name == "res.append") {
+        for (std::size_t i = 3; i < command.size(); ++i) {
+            if (command[i] == "-o" || command[i] == "--prefix") {
+                ++i;
+                continue;
+            }
+            inputs.push_back(command[i]);
+        }
+    }
+    for (std::size_t i = 0; i + 1 < command.size(); ++i) {
+        if (std::find(operation.inputOptions.begin(), operation.inputOptions.end(), command[i])
+            != operation.inputOptions.end()) {
+            inputs.push_back(command[++i]);
+        }
+    }
+    return inputs;
 }
 
 std::vector<std::string> OutputPathsForOperation(const std::string& operationName,
@@ -292,16 +327,19 @@ std::vector<std::string> OutputPathsForOperation(const std::string& operationNam
     return {};
 }
 
-bool RejectInPlaceCommandOutput(const std::string& operationName,
+bool RejectInPlaceCommandOutput(const GameOperation& operation,
                                 const std::vector<std::string>& command,
                                 const std::string& workingDirectory,
                                 bool writesGame, QString& error) {
     if (!writesGame) return true;
-    const auto inputs = InputPathsForOperation(operationName, command);
-    const auto outputs = OutputPathsForOperation(operationName, command);
+    const auto inputs = InputPathsForOperation(operation, command);
+    const auto outputs = OutputPathsForOperation(operation.name, command);
     for (const auto& input : inputs) {
         for (const auto& output : outputs) {
-            if (!RejectInPlaceOutput(input, output, workingDirectory, error)) return false;
+            if (SameOrDescendantPath(input, output, workingDirectory)) {
+                error = QStringLiteral("input and output paths must differ and output must not be inside an input directory");
+                return false;
+            }
         }
     }
     return true;
@@ -446,7 +484,7 @@ std::optional<QJsonObject> HandleGameCommand(const QJsonObject& arguments,
     std::string workingDirectory;
     if (!ReadString(arguments, "working_directory", workingDirectory, error, false))
         return ResultResponse(id, ToolError(error));
-    if (!RejectInPlaceCommandOutput(operationName, command, workingDirectory,
+    if (!RejectInPlaceCommandOutput(*operation, command, workingDirectory,
                                     operation->writesGame, error))
         return ResultResponse(id, ToolError(error));
     return ResultResponse(id, ExecutionToolResult(executor(command, workingDirectory), command));
@@ -565,6 +603,9 @@ std::optional<QJsonObject> HandleGameObjectEdit(const QJsonObject& arguments,
     std::string modelId;
     if (!ReadString(arguments, "model_id", modelId, error, false))
         return ResultResponse(id, ToolError(error));
+    if (arguments.contains("model_id") && arguments.value("model_id").isString()
+        && modelId.empty())
+        return ResultResponse(id, ToolError(QStringLiteral("argument must not be empty: model_id")));
     if (!modelId.empty()) {
         command.emplace_back("--model-id");
         command.emplace_back(std::move(modelId));

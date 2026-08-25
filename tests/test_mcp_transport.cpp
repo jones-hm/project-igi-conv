@@ -4,15 +4,100 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QHostAddress>
+#include <QTcpServer>
+#include <QTcpSocket>
 
+#include <chrono>
 #include <sstream>
 #include <string>
+#include <thread>
 
 namespace {
 
 std::string JsonLine(const QJsonObject& object) {
     const QByteArray bytes = QJsonDocument(object).toJson(QJsonDocument::Compact);
     return std::string(bytes.constData(), static_cast<std::size_t>(bytes.size()));
+}
+
+struct HttpResponse {
+    int status = 0;
+    QByteArray headers;
+    QByteArray body;
+    bool connected = false;
+};
+
+quint16 FindFreePort() {
+    QTcpServer probe;
+    EXPECT_TRUE(probe.listen(QHostAddress::LocalHost, 0));
+    const quint16 port = probe.serverPort();
+    probe.close();
+    return port;
+}
+
+HttpResponse SendHttp(quint16 port, const QByteArray& method, const QByteArray& endpoint,
+                      const QByteArray& body, const QByteArray& origin = {},
+                      const QByteArray& authorization = {}, const QByteArray& session = {},
+                      bool includeHost = true) {
+    HttpResponse response;
+    for (int attempt = 0; attempt < 50; ++attempt) {
+        QTcpSocket socket;
+        socket.connectToHost(QHostAddress::LocalHost, port);
+        if (!socket.waitForConnected(100)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+        response.connected = true;
+        QByteArray request = method + " " + endpoint + " HTTP/1.1\r\n";
+        if (includeHost)
+            request += "Host: 127.0.0.1:" + QByteArray::number(port) + "\r\n";
+        request += "Accept: application/json, text/event-stream\r\n"
+                   "Content-Type: application/json\r\n"
+                   "MCP-Protocol-Version: 2025-11-25\r\n";
+        if (!origin.isEmpty()) request += "Origin: " + origin + "\r\n";
+        if (!authorization.isEmpty()) request += "Authorization: " + authorization + "\r\n";
+        if (!session.isEmpty()) request += "Mcp-Session-Id: " + session + "\r\n";
+        request += "Content-Length: " + QByteArray::number(body.size()) + "\r\n\r\n" + body;
+        socket.write(request);
+        if (!socket.waitForBytesWritten(1000)) return response;
+        QByteArray raw;
+        while (socket.waitForReadyRead(3000)) raw += socket.readAll();
+        raw += socket.readAll();
+        const int separator = raw.indexOf("\r\n\r\n");
+        if (separator < 0) return response;
+        response.headers = raw.left(separator);
+        response.body = raw.mid(separator + 4);
+        const QList<QByteArray> statusParts = response.headers.left(
+            response.headers.indexOf("\r\n")).split(' ');
+        if (statusParts.size() >= 2) response.status = statusParts.at(1).toInt();
+        return response;
+    }
+    return response;
+}
+
+QByteArray Header(const HttpResponse& response, const QByteArray& name) {
+    for (const auto& line : response.headers.split('\n')) {
+        const QByteArray trimmed = line.trimmed();
+        const int separator = trimmed.indexOf(':');
+        if (separator > 0 && trimmed.left(separator).compare(name, Qt::CaseInsensitive) == 0)
+            return trimmed.mid(separator + 1).trimmed();
+    }
+    return {};
+}
+
+QJsonObject InitializeRequest() {
+    return QJsonObject{
+        {"jsonrpc", "2.0"}, {"id", 1}, {"method", "initialize"},
+        {"params", QJsonObject{
+            {"protocolVersion", "2025-11-25"}, {"capabilities", QJsonObject{}},
+            {"clientInfo", QJsonObject{{"name", "http-test"}, {"version", "1"}}},
+        }},
+    };
+}
+
+void WaitForHttpServer(std::thread& serverThread) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    (void)serverThread;
 }
 
 } // namespace
@@ -94,4 +179,82 @@ TEST(McpTransport, RejectsOversizedStdioFrameWithoutConsumingTheNextRequest) {
     QJsonObject response = QJsonDocument::fromJson(QByteArray::fromStdString(line)).object();
     EXPECT_EQ(response.value("id").toInt(), 7);
     EXPECT_TRUE(diagnostics.str().empty());
+}
+
+TEST(McpTransport, ExercisesHttpProtocolAndSecurityPathsInProcess) {
+    igi1conv::McpDispatcher dispatcher;
+    const quint16 port = FindFreePort();
+    igi1conv::McpHttpOptions options;
+    options.port = port;
+    options.maxRequests = 2;
+    int serverResult = -1;
+    std::thread serverThread([&] { serverResult = igi1conv::RunMcpHttp(dispatcher, options); });
+    WaitForHttpServer(serverThread);
+
+    const QByteArray origin = "http://127.0.0.1:" + QByteArray::number(port);
+    const HttpResponse initialize = SendHttp(
+        port, "POST", "/mcp", QByteArray::fromStdString(JsonLine(InitializeRequest())), origin);
+    ASSERT_TRUE(initialize.connected);
+    ASSERT_EQ(initialize.status, 200);
+    const QByteArray session = Header(initialize, "Mcp-Session-Id");
+    ASSERT_FALSE(session.isEmpty());
+    const QJsonObject list{{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}};
+    const HttpResponse tools = SendHttp(
+        port, "POST", "/mcp", QByteArray::fromStdString(JsonLine(list)), origin, {}, session);
+    ASSERT_EQ(tools.status, 200);
+    serverThread.join();
+    EXPECT_EQ(serverResult, 0);
+
+    const auto runSingle = [&](const igi1conv::McpHttpOptions& serverOptions,
+                               const QByteArray& endpoint, const QByteArray& body,
+                               const QByteArray& requestOrigin = {},
+                               const QByteArray& authorization = {},
+                               bool includeHost = true) {
+        int result = -1;
+        std::thread worker([&] { result = igi1conv::RunMcpHttp(dispatcher, serverOptions); });
+        WaitForHttpServer(worker);
+        const HttpResponse response = SendHttp(serverOptions.port, "POST", endpoint, body,
+                                                requestOrigin, authorization, {}, includeHost);
+        worker.join();
+        EXPECT_EQ(result, 0);
+        return response;
+    };
+
+    igi1conv::McpHttpOptions authOptions;
+    authOptions.port = FindFreePort();
+    authOptions.authToken = "http-secret";
+    authOptions.maxRequests = 3;
+    int authResult = -1;
+    std::thread authThread([&] { authResult = igi1conv::RunMcpHttp(dispatcher, authOptions); });
+    WaitForHttpServer(authThread);
+    const QByteArray authOrigin = "http://127.0.0.1:" + QByteArray::number(authOptions.port);
+    const QByteArray initBody = QByteArray::fromStdString(JsonLine(InitializeRequest()));
+    EXPECT_EQ(SendHttp(authOptions.port, "POST", "/mcp", initBody, authOrigin).status, 401);
+    EXPECT_EQ(SendHttp(authOptions.port, "POST", "/mcp", initBody, authOrigin,
+                       "Bearer wrong").status, 401);
+    EXPECT_EQ(SendHttp(authOptions.port, "POST", "/mcp", initBody, authOrigin,
+                       "Bearer http-secret").status, 200);
+    authThread.join();
+    EXPECT_EQ(authResult, 0);
+
+    igi1conv::McpHttpOptions badOriginOptions;
+    badOriginOptions.port = FindFreePort();
+    badOriginOptions.maxRequests = 1;
+    EXPECT_EQ(runSingle(badOriginOptions, "/mcp", initBody, "http://evil.example").status, 403);
+
+    igi1conv::McpHttpOptions missingHostOptions;
+    missingHostOptions.port = FindFreePort();
+    missingHostOptions.maxRequests = 1;
+    EXPECT_EQ(runSingle(missingHostOptions, "/mcp", initBody, {}, {}, false).status, 400);
+
+    igi1conv::McpHttpOptions wrongEndpointOptions;
+    wrongEndpointOptions.port = FindFreePort();
+    wrongEndpointOptions.maxRequests = 1;
+    EXPECT_EQ(runSingle(wrongEndpointOptions, "/wrong", initBody).status, 404);
+
+    igi1conv::McpHttpOptions oversizedOptions;
+    oversizedOptions.port = FindFreePort();
+    oversizedOptions.maxRequests = 1;
+    QByteArray oversized(8 * 1024 * 1024 + 1, 'x');
+    EXPECT_EQ(runSingle(oversizedOptions, "/mcp", oversized).status, 400);
 }

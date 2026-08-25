@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -373,6 +374,59 @@ TEST(McpProtocol, RejectsPositionalAndDefaultInPlaceGameOutputs) {
     ASSERT_TRUE(implicitResponse.has_value());
     EXPECT_TRUE(implicitResponse->value("result").toObject().value("isError").toBool());
     EXPECT_EQ(executions, 0);
+}
+
+TEST(McpProtocol, RejectsDirectoryAndSecondaryInputOutputCollisions) {
+    bool executed = false;
+    igi1conv::McpDispatcher dispatcher(
+        [&](const std::vector<std::string>&, const std::string&) {
+            executed = true;
+            return igi1conv::McpExecutionResult{0, "unexpected", ""};
+        });
+    ASSERT_TRUE(Initialize(dispatcher));
+
+    const auto root = std::filesystem::temp_directory_path() / "igi1conv-mcp-collision-test";
+    std::error_code cleanupError;
+    std::filesystem::remove_all(root, cleanupError);
+    std::filesystem::create_directories(root / "source");
+
+    const QJsonObject pack{
+        {"command", "res.pack"},
+        {"args", QJsonArray{"source", "source/output.res"}},
+        {"working_directory", QString::fromStdString(root.string())},
+    };
+    const auto packResponse = dispatcher.Handle(ToolCall(29, "igi_game_command", pack));
+    ASSERT_TRUE(packResponse.has_value());
+    EXPECT_TRUE(packResponse->value("result").toObject().value("isError").toBool());
+
+    const QJsonObject templateCollision{
+        {"command", "olm.from-png"},
+        {"args", QJsonArray{"input.png", "--template", "ref.olm", "-o", "ref.olm"}},
+    };
+    const auto templateResponse = dispatcher.Handle(
+        ToolCall(30, "igi_game_command", templateCollision));
+    ASSERT_TRUE(templateResponse.has_value());
+    EXPECT_TRUE(templateResponse->value("result").toObject().value("isError").toBool());
+    EXPECT_FALSE(executed);
+    std::filesystem::remove_all(root, cleanupError);
+}
+
+TEST(McpProtocol, RejectsExplicitlyEmptyModelId) {
+    bool executed = false;
+    igi1conv::McpDispatcher dispatcher(
+        [&](const std::vector<std::string>&, const std::string&) {
+            executed = true;
+            return igi1conv::McpExecutionResult{0, "unexpected", ""};
+        });
+    ASSERT_TRUE(Initialize(dispatcher));
+    const QJsonObject arguments{
+        {"input_file", "objects.qsc"}, {"output_file", "edited.qsc"},
+        {"selector", QJsonObject{{"task_id", 701}}}, {"model_id", ""},
+    };
+    const auto response = dispatcher.Handle(ToolCall(31, "igi_game_object_edit", arguments));
+    ASSERT_TRUE(response.has_value());
+    EXPECT_TRUE(response->value("result").toObject().value("isError").toBool());
+    EXPECT_FALSE(executed);
 }
 
 TEST(McpProtocol, ResolvesInPlaceChecksRelativeToWorkingDirectory) {

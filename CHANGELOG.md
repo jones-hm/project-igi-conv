@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.11.0] - 2026-06-25
 
 ### Added
 - **Game-facing MCP server** — `igi1conv mcp` now exposes the registered
@@ -66,8 +66,6 @@ All notable changes to this project will be documented in this file.
 - Added positional/default output collision checks, per-session HTTP lifecycle
   state, bounded command output, finite request deadlines, and colocated Qt
   runtime deployment for Windows builds.
-
-## [1.11.0] - 2026-06-25
 
 ### Added
 - **OLM Writer** — `.olm` lightmaps can now be written, not just read:

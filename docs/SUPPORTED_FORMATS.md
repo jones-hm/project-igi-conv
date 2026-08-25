@@ -24,7 +24,7 @@ This document lists the supported file formats, their conversion targets, and wh
 
 ## MCP exposure
 
-The MCP server exposes the registered game-affecting CLI operations in this matrix,
+The MCP server exposes a subset of the registered game-affecting CLI operations in this matrix,
 including read-only inspection needed to select or verify a game edit. The
 inherently in-place CLI operations `lightmap.recalc`, `mtp.repair`, and
 `mtp.sync` remain CLI-only until they have distinct-output modes; the

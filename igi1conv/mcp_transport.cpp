@@ -1,6 +1,7 @@
 #include "mcp_transport.h"
 
 #include <QByteArray>
+#include <QCryptographicHash>
 #include <QElapsedTimer>
 #include <QHostAddress>
 #include <QJsonDocument>
@@ -12,13 +13,20 @@
 #include <QUrl>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QThread>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <vector>
 
 namespace igi1conv {
 namespace {
@@ -124,6 +132,60 @@ bool IsOriginAllowed(const QByteArray& origin, const McpHttpOptions& options,
 
 QByteArray HeaderValue(const QMap<QByteArray, QByteArray>& headers, const char* name) {
     return headers.value(QByteArray(name).toLower()).trimmed();
+}
+
+bool ConstantTimeEquals(const QByteArray& left, const QByteArray& right) {
+    const QByteArray leftDigest = QCryptographicHash::hash(left, QCryptographicHash::Sha256);
+    const QByteArray rightDigest = QCryptographicHash::hash(right, QCryptographicHash::Sha256);
+    unsigned char difference = static_cast<unsigned char>(left.size() != right.size());
+    for (int i = 0; i < leftDigest.size(); ++i)
+        difference |= static_cast<unsigned char>(leftDigest.at(i) ^ rightDigest.at(i));
+    return difference == 0;
+}
+
+QByteArray ExpectedHost(const McpHttpOptions& options, quint16 port) {
+    QByteArray host = QByteArray::fromStdString(options.host);
+    if (host.contains(':') && !host.startsWith('['))
+        host = '[' + host + ']';
+    return host + ':' + QByteArray::number(port);
+}
+
+struct AuthFailureState {
+    std::chrono::steady_clock::time_point windowStart = std::chrono::steady_clock::now();
+    std::size_t failures = 0;
+};
+
+bool AuthenticateRequest(const QByteArray& authorization, const QByteArray& tokenHeader,
+                         const McpHttpOptions& options, const QByteArray& peer,
+                         std::map<QByteArray, AuthFailureState>& failures,
+                         std::mutex& failuresMutex) {
+    if (options.authToken.empty()) return true;
+    const QByteArray expectedAuthorization = QByteArray("Bearer ")
+        + QByteArray::fromStdString(options.authToken);
+    const QByteArray expectedToken = QByteArray::fromStdString(options.authToken);
+    const bool authorizationMatches = ConstantTimeEquals(authorization, expectedAuthorization);
+    const bool tokenHeaderMatches = ConstantTimeEquals(tokenHeader, expectedToken);
+    if (authorizationMatches || tokenHeaderMatches) {
+        std::lock_guard lock(failuresMutex);
+        failures.erase(peer);
+        return true;
+    }
+
+    std::size_t failureCount = 1;
+    {
+        std::lock_guard lock(failuresMutex);
+        auto& state = failures[peer];
+        const auto now = std::chrono::steady_clock::now();
+        if (now - state.windowStart > std::chrono::minutes(1)) {
+            state.windowStart = now;
+            state.failures = 0;
+        }
+        state.failures = std::min<std::size_t>(state.failures + 1, 10);
+        failureCount = state.failures;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+        static_cast<int>(std::min<std::size_t>(250, failureCount * 25))));
+    return false;
 }
 
 QByteArray HttpProtocolVersion(const QMap<QByteArray, QByteArray>& headers,
@@ -267,6 +329,149 @@ bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error) {
     return true;
 }
 
+void HandleHttpConnection(QTcpSocket& socket, const McpDispatcher& dispatcher,
+                          const McpHttpOptions& options, const QHostAddress& bindAddress,
+                          quint16 actualPort, QMap<QByteArray, bool>& sessions,
+                          std::mutex& sessionsMutex,
+                          std::map<QByteArray, AuthFailureState>& authFailures,
+                          std::mutex& authFailuresMutex) {
+    QByteArray request;
+    QString requestError;
+    if (!ReadHttpRequest(socket, request, requestError)) {
+        WriteHttpResponse(socket, 400, ErrorBody(requestError), "application/json");
+        return;
+    }
+
+    const int headerEnd = request.indexOf("\r\n\r\n");
+    const QList<QByteArray> headerLines = request.left(headerEnd).split('\n');
+    const QList<QByteArray> requestLine = headerLines.at(0).trimmed().split(' ');
+    QMap<QByteArray, QByteArray> headers;
+    for (int i = 1; i < headerLines.size(); ++i) {
+        const QByteArray line = headerLines.at(i).trimmed();
+        const int separator = line.indexOf(':');
+        if (separator > 0)
+            headers.insert(line.left(separator).trimmed().toLower(), line.mid(separator + 1).trimmed());
+    }
+
+    const QByteArray origin = HeaderValue(headers, "origin");
+    const bool originAllowed = IsOriginAllowed(origin, options, bindAddress);
+    const QByteArray host = HeaderValue(headers, "host");
+    const bool hostAllowed = !host.isEmpty() && host == ExpectedHost(options, actualPort);
+    const QByteArray authorization = HeaderValue(headers, "authorization");
+    const QByteArray tokenHeader = HeaderValue(headers, "x-mcp-auth-token");
+    const QByteArray peer = socket.peerAddress().toString().toUtf8();
+    const bool authenticated = AuthenticateRequest(
+        authorization, tokenHeader, options, peer, authFailures, authFailuresMutex);
+    const QByteArray sessionId = HeaderValue(headers, "mcp-session-id");
+
+    const QByteArray method = requestLine.at(0);
+    const bool endpointMatches = requestLine.at(1) == QByteArray::fromStdString(options.endpoint);
+    if (!hostAllowed) {
+        WriteHttpResponse(socket, 400,
+                          ErrorBody(QStringLiteral("Host header must match the configured listener")),
+                          "application/json", origin);
+    } else if (!originAllowed) {
+        WriteHttpResponse(socket, 403, ErrorBody(QStringLiteral("Origin is not allowed")),
+                          "application/json");
+    } else if (!endpointMatches) {
+        WriteHttpResponse(socket, 404, ErrorBody(QStringLiteral("MCP endpoint not found")),
+                          "application/json", origin);
+    } else if (method == "OPTIONS") {
+        WriteHttpResponse(socket, 204, {}, "application/json", origin,
+                          "2025-11-25", true);
+    } else if (method != "POST") {
+        WriteHttpResponse(socket, 405, ErrorBody(QStringLiteral("MCP endpoint requires POST")),
+                          "application/json", origin);
+    } else if (!authenticated) {
+        WriteHttpResponse(socket, 401, ErrorBody(QStringLiteral("MCP authentication required")),
+                          "application/json", origin);
+    } else if (!AcceptsMediaType(HeaderValue(headers, "accept"), "application/json")
+               || !AcceptsMediaType(HeaderValue(headers, "accept"), "text/event-stream")) {
+        WriteHttpResponse(socket, 400,
+                          ErrorBody(QStringLiteral("Accept must include application/json and text/event-stream")),
+                          "application/json", origin);
+    } else if (!HeaderValue(headers, "content-type").startsWith("application/json")) {
+        WriteHttpResponse(socket, 400, ErrorBody(QStringLiteral("Content-Type must be application/json")),
+                          "application/json", origin);
+    } else {
+        const QByteArray body = request.mid(headerEnd + 4);
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            const QByteArray responseBody = QJsonDocument(
+                JsonRpcError(QJsonValue(QJsonValue::Null), -32700,
+                             QStringLiteral("invalid JSON-RPC body")))
+                .toJson(QJsonDocument::Compact);
+            WriteHttpResponse(socket, 400, responseBody, "application/json", origin);
+        } else {
+            bool protocolVersionValid = true;
+            const QByteArray protocolVersion = HttpProtocolVersion(
+                headers, document.object(), protocolVersionValid);
+            if (!protocolVersionValid) {
+                WriteHttpResponse(socket, 400,
+                                  ErrorBody(QStringLiteral("unsupported MCP-Protocol-Version")),
+                                  "application/json", origin);
+            } else {
+                const QJsonObject requestObject = document.object();
+                const bool isInitialize = requestObject.value("method").toString()
+                    == QStringLiteral("initialize");
+                if (isInitialize && !sessionId.isEmpty()) {
+                    WriteHttpResponse(socket, 400,
+                                      ErrorBody(QStringLiteral("initialize must not include Mcp-Session-Id")),
+                                      "application/json", origin);
+                } else if (!isInitialize && sessionId.isEmpty()) {
+                    WriteHttpResponse(socket, 400,
+                                      ErrorBody(QStringLiteral("Mcp-Session-Id is required after initialize")),
+                                      "application/json", origin);
+                } else {
+                    bool initialized = false;
+                    bool knownSession = sessionId.isEmpty();
+                    {
+                        std::lock_guard lock(sessionsMutex);
+                        if (!sessionId.isEmpty()) {
+                            knownSession = sessions.contains(sessionId);
+                            if (knownSession) initialized = sessions.value(sessionId);
+                        }
+                    }
+                    if (!knownSession) {
+                        WriteHttpResponse(socket, 404,
+                                          ErrorBody(QStringLiteral("unknown Mcp-Session-Id")),
+                                          "application/json", origin);
+                    } else {
+                        std::optional<QJsonObject> response;
+                        QByteArray responseSessionId = sessionId;
+                        {
+                            std::lock_guard lock(sessionsMutex);
+                            response = dispatcher.Handle(requestObject, initialized);
+                            if (isInitialize && response.has_value()
+                                && response->value("result").isObject()) {
+                                responseSessionId = QByteArray("igi1conv-")
+                                    + QByteArray::number(QRandomGenerator::global()->generate64(), 16);
+                                sessions.insert(responseSessionId, initialized);
+                            } else if (!sessionId.isEmpty()) {
+                                sessions[sessionId] = initialized;
+                            }
+                        }
+                        if (response.has_value()) {
+                            const QByteArray responseBody = QJsonDocument(*response)
+                                .toJson(QJsonDocument::Compact);
+                            QByteArray responseProtocolVersion = protocolVersion;
+                            const QJsonObject result = response->value("result").toObject();
+                            if (result.value("protocolVersion").isString())
+                                responseProtocolVersion = result.value("protocolVersion").toString().toUtf8();
+                            WriteHttpResponse(socket, 200, responseBody, "application/json", origin,
+                                              responseProtocolVersion, false, responseSessionId);
+                        } else {
+                            WriteHttpResponse(socket, 202, {}, "application/json", origin,
+                                              protocolVersion, false, responseSessionId);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 } // namespace
 
 int RunMcpStdio(const McpDispatcher& dispatcher) {
@@ -329,135 +534,46 @@ int RunMcpHttp(const McpDispatcher& dispatcher, const McpHttpOptions& options) {
 
     std::size_t handled = 0;
     QMap<QByteArray, bool> sessions;
+    std::mutex sessionsMutex;
+    std::map<QByteArray, AuthFailureState> authFailures;
+    std::mutex authFailuresMutex;
+    std::vector<QThread*> workers;
+    constexpr std::size_t kMaxConcurrentConnections = 64;
+    auto joinWorkers = [&]() {
+        for (QThread* worker : workers) {
+            worker->wait();
+            delete worker;
+        }
+        workers.clear();
+    };
+
     while (options.maxRequests == 0 || handled < options.maxRequests) {
         if (!server.waitForNewConnection(-1)) {
             std::cerr << "MCP HTTP accept failed: " << server.errorString().toStdString() << "\n";
+            joinWorkers();
             return 1;
         }
         while (server.hasPendingConnections()) {
             QTcpSocket* socket = server.nextPendingConnection();
             if (!socket) continue;
-            QByteArray request;
-            QString requestError;
-            if (!ReadHttpRequest(*socket, request, requestError)) {
-                WriteHttpResponse(*socket, 400, ErrorBody(requestError), "application/json");
-                delete socket;
-                ++handled;
-                continue;
-            }
-
-            const int headerEnd = request.indexOf("\r\n\r\n");
-            const QList<QByteArray> headerLines = request.left(headerEnd).split('\n');
-            const QList<QByteArray> requestLine = headerLines.at(0).trimmed().split(' ');
-            QMap<QByteArray, QByteArray> headers;
-            for (int i = 1; i < headerLines.size(); ++i) {
-                const QByteArray line = headerLines.at(i).trimmed();
-                const int separator = line.indexOf(':');
-                if (separator > 0)
-                    headers.insert(line.left(separator).trimmed().toLower(), line.mid(separator + 1).trimmed());
-            }
-
-            const QByteArray origin = HeaderValue(headers, "origin");
-            const bool originAllowed = IsOriginAllowed(origin, options, bindAddress);
-            const QByteArray authorization = HeaderValue(headers, "authorization");
-            const QByteArray tokenHeader = HeaderValue(headers, "x-mcp-auth-token");
-            const QByteArray sessionId = HeaderValue(headers, "mcp-session-id");
-            const QByteArray expectedToken = QByteArray("Bearer ") + QByteArray::fromStdString(options.authToken);
-            const bool authenticated = options.authToken.empty()
-                || authorization == expectedToken || tokenHeader == QByteArray::fromStdString(options.authToken);
-
-            const QByteArray method = requestLine.at(0);
-            const bool endpointMatches = requestLine.at(1) == QByteArray::fromStdString(options.endpoint);
-            if (!originAllowed) {
-                WriteHttpResponse(*socket, 403, ErrorBody(QStringLiteral("Origin is not allowed")),
-                                  "application/json");
-            } else if (!endpointMatches) {
-                WriteHttpResponse(*socket, 404, ErrorBody(QStringLiteral("MCP endpoint not found")),
-                                  "application/json", origin);
-            } else if (method == "OPTIONS") {
-                WriteHttpResponse(*socket, 204, {}, "application/json", origin,
-                                  "2025-11-25", true);
-            } else if (method != "POST") {
-                WriteHttpResponse(*socket, 405, ErrorBody(QStringLiteral("MCP endpoint requires POST")),
-                                  "application/json", origin);
-            } else if (!authenticated) {
-                WriteHttpResponse(*socket, 401, ErrorBody(QStringLiteral("MCP authentication required")),
-                                  "application/json", origin);
-            } else if (!AcceptsMediaType(HeaderValue(headers, "accept"), "application/json")
-                       || !AcceptsMediaType(HeaderValue(headers, "accept"), "text/event-stream")) {
-                WriteHttpResponse(*socket, 400,
-                                  ErrorBody(QStringLiteral("Accept must include application/json and text/event-stream")),
-                                  "application/json", origin);
-            } else if (!HeaderValue(headers, "content-type").startsWith("application/json")) {
-                WriteHttpResponse(*socket, 400, ErrorBody(QStringLiteral("Content-Type must be application/json")),
-                                  "application/json", origin);
-            } else {
-                const QByteArray body = request.mid(headerEnd + 4);
-                QJsonParseError parseError;
-                const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
-                if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-                    const QByteArray responseBody = QJsonDocument(
-                        JsonRpcError(QJsonValue(QJsonValue::Null), -32700,
-                                     QStringLiteral("invalid JSON-RPC body")))
-                        .toJson(QJsonDocument::Compact);
-                    WriteHttpResponse(*socket, 400, responseBody, "application/json", origin);
-                } else {
-                    bool protocolVersionValid = true;
-                    const QByteArray protocolVersion = HttpProtocolVersion(
-                        headers, document.object(), protocolVersionValid);
-                    if (!protocolVersionValid) {
-                        WriteHttpResponse(*socket, 400,
-                                          ErrorBody(QStringLiteral("unsupported MCP-Protocol-Version")),
-                                          "application/json", origin);
-                    } else {
-                        const QJsonObject requestObject = document.object();
-                        const bool isInitialize = requestObject.value("method").toString()
-                            == QStringLiteral("initialize");
-                        if (isInitialize && !sessionId.isEmpty()) {
-                            WriteHttpResponse(*socket, 400,
-                                              ErrorBody(QStringLiteral("initialize must not include Mcp-Session-Id")),
-                                              "application/json", origin);
-                        } else if (!isInitialize && sessionId.isEmpty()) {
-                            WriteHttpResponse(*socket, 400,
-                                              ErrorBody(QStringLiteral("Mcp-Session-Id is required after initialize")),
-                                              "application/json", origin);
-                        } else if (!isInitialize && !sessions.contains(sessionId)) {
-                            WriteHttpResponse(*socket, 404,
-                                              ErrorBody(QStringLiteral("unknown Mcp-Session-Id")),
-                                              "application/json", origin);
-                        } else {
-                            bool initialized = sessionId.isEmpty() ? false : sessions.value(sessionId);
-                            const auto response = dispatcher.Handle(requestObject, initialized);
-                            QByteArray responseSessionId = sessionId;
-                            if (isInitialize && response.has_value()
-                                && response->value("result").isObject()) {
-                                responseSessionId = QByteArray("igi1conv-")
-                                    + QByteArray::number(QRandomGenerator::global()->generate64(), 16);
-                                sessions.insert(responseSessionId, initialized);
-                            } else if (!sessionId.isEmpty()) {
-                                sessions[sessionId] = initialized;
-                            }
-                            if (response.has_value()) {
-                                const QByteArray responseBody = QJsonDocument(*response).toJson(QJsonDocument::Compact);
-                                QByteArray responseProtocolVersion = protocolVersion;
-                                const QJsonObject result = response->value("result").toObject();
-                                if (result.value("protocolVersion").isString())
-                                    responseProtocolVersion = result.value("protocolVersion").toString().toUtf8();
-                                WriteHttpResponse(*socket, 200, responseBody, "application/json", origin,
-                                                  responseProtocolVersion, false, responseSessionId);
-                            } else {
-                                WriteHttpResponse(*socket, 202, {}, "application/json", origin,
-                                                  protocolVersion, false, responseSessionId);
-                            }
-                        }
-                    }
-                }
-            }
-            socket->disconnectFromHost();
-            delete socket;
             ++handled;
+            socket->setParent(nullptr);
+            QThread* worker = QThread::create([&, socket] {
+                HandleHttpConnection(*socket, dispatcher, options, bindAddress,
+                                     server.serverPort(), sessions, sessionsMutex,
+                                     authFailures, authFailuresMutex);
+                socket->disconnectFromHost();
+                delete socket;
+            });
+            socket->moveToThread(worker);
+            worker->start();
+            workers.push_back(worker);
+            if (workers.size() >= kMaxConcurrentConnections)
+                joinWorkers();
+            if (options.maxRequests != 0 && handled >= options.maxRequests) break;
         }
     }
+    joinWorkers();
     server.close();
     return 0;
 }

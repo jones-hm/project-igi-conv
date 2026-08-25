@@ -274,13 +274,14 @@ std::string ArgText(const std::string& source, const ArgumentSpan& span) {
     return source.substr(span.begin, span.end - span.begin);
 }
 
-std::string Unquote(const std::string& raw) {
+bool Unquote(const std::string& raw, std::string& value) {
     if (raw.size() < 2 || raw.front() != '"' || raw.back() != '"')
-        return {};
-    std::string value;
+        return false;
+    value.clear();
     value.reserve(raw.size() - 2);
     for (std::size_t i = 1; i + 1 < raw.size(); ++i) {
-        if (raw[i] == '\\' && i + 2 < raw.size()) {
+        if (raw[i] == '\\') {
+            if (i + 1 >= raw.size() - 1) return false;
             const char escaped = raw[++i];
             switch (escaped) {
             case 'n': value.push_back('\n'); break;
@@ -289,10 +290,11 @@ std::string Unquote(const std::string& raw) {
             default: value.push_back(escaped); break;
             }
         } else {
+            if (raw[i] == '"') return false;
             value.push_back(raw[i]);
         }
     }
-    return value;
+    return true;
 }
 
 bool ParseInt(const std::string& raw, int32_t& value) {
@@ -343,7 +345,8 @@ bool Matches(const QscTaskSelector& selector, const QscTaskSummary& task) {
     if (!selector.taskId.has_value() && selector.className.empty()
         && selector.objectName.empty())
         return false;
-    if (selector.taskId.has_value() && selector.taskId.value() != task.taskId)
+    if (selector.taskId.has_value()
+        && (!task.taskIdParsed || selector.taskId.value() != task.taskId))
         return false;
     if (!selector.className.empty() && selector.className != task.className)
         return false;
@@ -361,15 +364,23 @@ bool BuildSummaries(const std::string& source, const std::vector<TaskCall>& call
         for (const auto& argument : call.arguments)
             task.directArguments.push_back(ArgText(source, argument));
         if (!task.directArguments.empty())
-            ParseInt(task.directArguments[0], task.taskId);
-        if (task.directArguments.size() > 1)
-            task.className = Unquote(task.directArguments[1]);
-        if (task.directArguments.size() > 2)
-            task.objectName = Unquote(task.directArguments[2]);
+            task.taskIdParsed = ParseInt(task.directArguments[0], task.taskId);
+        if (task.directArguments.size() > 1 && task.directArguments[1].front() == '"'
+            && !Unquote(task.directArguments[1], task.className)) {
+            error = "malformed quoted class name in Task_New call";
+            return false;
+        }
+        if (task.directArguments.size() > 2 && task.directArguments[2].front() == '"'
+            && !Unquote(task.directArguments[2], task.objectName)) {
+            error = "malformed quoted object name in Task_New call";
+            return false;
+        }
         tasks.push_back(std::move(task));
     }
-    if (tasks.empty())
+    if (tasks.empty()) {
         error = "no Task_New calls found";
+        return false;
+    }
     return true;
 }
 
@@ -399,7 +410,10 @@ QscEditResult EditQscTasks(const std::string& source,
 
     std::vector<QscTaskSummary> tasks;
     std::string summaryError;
-    BuildSummaries(source, calls, tasks, summaryError);
+    if (!BuildSummaries(source, calls, tasks, summaryError)) {
+        result.error = summaryError;
+        return result;
+    }
     for (const auto& task : tasks) {
         if (Matches(selector, task))
             ++result.matchedCalls;

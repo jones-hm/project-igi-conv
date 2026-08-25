@@ -6,11 +6,13 @@
 #include "cmd_olm.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <charconv>
 #include <cctype>
 #include <cerrno>
 #include <cmath>
 #include <chrono>
 #include <cstdlib>
+#include <unordered_set>
 
 namespace fs = std::filesystem;
 using igi1conv::LightmapBinding;
@@ -74,6 +76,8 @@ struct LightmapArgs {
     double x = 0, y = 0, z = 0;
 };
 
+static bool ParseInt32(const std::string& text, int32_t& out);
+
 // Parses "--model <id> --qsc <path> [--task-id <id> | --pos X,Y,Z]" style
 // args shared by both subcommands. Returns false (with a message on
 // stderr) on a malformed --pos or missing required flags.
@@ -86,7 +90,10 @@ bool ParseLightmapArgs(int argc, char** argv, int startIdx, LightmapArgs& out) {
             out.qscPath = argv[++i];
         } else if (arg == "--task-id" && i + 1 < argc) {
             out.hasTaskId = true;
-            out.taskId = std::atoi(argv[++i]);
+            if (!ParseInt32(argv[++i], out.taskId)) {
+                std::cerr << "lightmap: --task-id expects a signed 32-bit integer\n";
+                return false;
+            }
         } else if (arg == "--pos" && i + 1 < argc) {
             std::string posArg = argv[++i];
             std::istringstream iss(posArg);
@@ -104,6 +111,9 @@ bool ParseLightmapArgs(int argc, char** argv, int startIdx, LightmapArgs& out) {
                 return false;
             }
             out.hasPos = true;
+        } else {
+            std::cerr << "lightmap: unknown option '" << arg << "'\n";
+            return false;
         }
     }
     if (out.model.empty()) {
@@ -233,6 +243,20 @@ static bool ParseFiniteFloat(const std::string& text, float& out) {
     return true;
 }
 
+static bool ParseInt32(const std::string& text, int32_t& out) {
+    if (text.empty()) return false;
+    const char* begin = text.data();
+    const char* end = begin + text.size();
+    const auto parsed = std::from_chars(begin, end, out);
+    return parsed.ec == std::errc() && parsed.ptr == end;
+}
+
+static bool IsUnitColor(const glm::vec3& value) {
+    return value.x >= 0.0f && value.x <= 1.0f
+        && value.y >= 0.0f && value.y <= 1.0f
+        && value.z >= 0.0f && value.z <= 1.0f;
+}
+
 static bool ParseVec3(const std::string& s, glm::vec3& out) {
     std::istringstream iss(s);
     std::string xs, ys, zs;
@@ -360,9 +384,9 @@ int do_lightmap_recalc(const RecalcArgs& args) {
         // surface that was fully shadowed before (lOrig≈0) can't blow up to white.
         const float eps = 1e-3f, maxF = 4.0f;
         glm::vec3 factor(
-            std::min(lNew.x / std::max(lOrig.x, eps), maxF),
-            std::min(lNew.y / std::max(lOrig.y, eps), maxF),
-            std::min(lNew.z / std::max(lOrig.z, eps), maxF));
+            std::clamp(lNew.x / std::max(lOrig.x, eps), 0.0f, maxF),
+            std::clamp(lNew.y / std::max(lOrig.y, eps), 0.0f, maxF),
+            std::clamp(lNew.z / std::max(lOrig.z, eps), 0.0f, maxF));
 
         OLMFile olm = ParseOlm(olmFiles[i]);
         if (!olm.valid) {
@@ -511,24 +535,65 @@ int cmd_lightmap(int argc, char** argv)
     else if (subcmd == "recalc")
     {
         RecalcArgs ra;
+        std::unordered_set<std::string> seen;
+        auto nextValue = [&](int& index, const std::string& option, std::string& value) {
+            if (!seen.insert(option).second) {
+                std::cerr << "lightmap: duplicate option '" << option << "'\n";
+                return false;
+            }
+            if (index + 1 >= argc) {
+                std::cerr << "lightmap: " << option << " requires a value\n";
+                return false;
+            }
+            value = argv[++index];
+            return true;
+        };
         for (int i = 2; i < argc; ++i) {
             std::string arg = argv[i];
-            auto next = [&](const char* flag) -> std::string {
-                return (i + 1 < argc) ? std::string(argv[++i]) : std::string();
-            };
-            if (arg == "--model")          ra.model = next(arg.c_str());
-            else if (arg == "--qsc")       ra.qscPath = next(arg.c_str());
-            else if (arg == "--mef")       ra.mefPath = next(arg.c_str());
-            else if (arg == "--task-id") { ra.taskId = std::atoi(next(arg.c_str()).c_str()); ra.hasTaskId = true; }
-            else if (arg == "--rot-orig") { if (!ParseVec3(next(arg.c_str()), ra.rotOrig)) { std::cerr << "lightmap: bad --rot-orig\n"; return 1; } }
-            else if (arg == "--rot-new")  { if (!ParseVec3(next(arg.c_str()), ra.rotNew))  { std::cerr << "lightmap: bad --rot-new\n"; return 1; } }
-            else if (arg == "--sun-dir")  { if (!ParseVec3(next(arg.c_str()), ra.sunDir))  { std::cerr << "lightmap: bad --sun-dir\n"; return 1; } ra.hasSunDir = true; }
-            else if (arg == "--sun-color"){ if (!ParseVec3(next(arg.c_str()), ra.sunColor)){ std::cerr << "lightmap: bad --sun-color\n"; return 1; } }
-            else if (arg == "--ambient")  { if (!ParseVec3(next(arg.c_str()), ra.ambient)) { std::cerr << "lightmap: bad --ambient\n"; return 1; } }
+            std::string value;
+            if (arg == "--model") {
+                if (!nextValue(i, arg, value)) return 1;
+                ra.model = value;
+            } else if (arg == "--qsc") {
+                if (!nextValue(i, arg, value)) return 1;
+                ra.qscPath = value;
+            } else if (arg == "--mef") {
+                if (!nextValue(i, arg, value)) return 1;
+                ra.mefPath = value;
+            } else if (arg == "--task-id") {
+                if (!nextValue(i, arg, value) || !ParseInt32(value, ra.taskId)) {
+                    std::cerr << "lightmap: --task-id expects a signed 32-bit integer\n";
+                    return 1;
+                }
+                ra.hasTaskId = true;
+            } else if (arg == "--rot-orig" || arg == "--rot-new" || arg == "--sun-dir"
+                       || arg == "--sun-color" || arg == "--ambient") {
+                if (!nextValue(i, arg, value)) return 1;
+                glm::vec3 parsed;
+                if (!ParseVec3(value, parsed)) {
+                    std::cerr << "lightmap: bad " << arg << "\n";
+                    return 1;
+                }
+                if (arg == "--rot-orig") ra.rotOrig = parsed;
+                else if (arg == "--rot-new") ra.rotNew = parsed;
+                else if (arg == "--sun-dir") { ra.sunDir = parsed; ra.hasSunDir = true; }
+                else if (!IsUnitColor(parsed)) {
+                    std::cerr << "lightmap: " << arg << " values must be in the range 0..1\n";
+                    return 1;
+                } else if (arg == "--sun-color") ra.sunColor = parsed;
+                else ra.ambient = parsed;
+            } else {
+                std::cerr << "lightmap: unknown option '" << arg << "'\n";
+                return 1;
+            }
         }
         if (ra.model.empty() || ra.qscPath.empty()) {
             std::cerr << "lightmap: recalc requires --model and --qsc\n";
             print_lightmap_help();
+            return 1;
+        }
+        if (ra.hasSunDir && glm::length(ra.sunDir) <= 1e-6f) {
+            std::cerr << "lightmap: --sun-dir must not be zero-length\n";
             return 1;
         }
         return do_lightmap_recalc(ra);

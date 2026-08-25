@@ -5,6 +5,7 @@
 
 #include <charconv>
 #include <cstdint>
+#include <cstdlib>
 #include <system_error>
 //   0 = success
 //   1 = bad args
@@ -30,7 +31,7 @@ void PrintMcpHelp() {
         "  --host <ip|localhost>   HTTP bind address (default: 127.0.0.1)\n"
         "  --port <n>              HTTP port (default: 8765)\n"
         "  --endpoint <path>       HTTP endpoint (default: /mcp)\n"
-        "  --auth-token <token>    Required for non-loopback HTTP binds\n"
+        "  --auth-token <token>    Bearer token (prefer IGI1CONV_MCP_TOKEN)\n"
         "  --origin <origin>       Allow an HTTP Origin (repeatable)\n"
         "  --help                  Show this help\n";
 }
@@ -89,6 +90,14 @@ int RunMcpCommand(const std::vector<std::string>& args) {
     if (transport != "stdio" && transport != "http") {
         std::cerr << "igi1conv mcp: --transport must be stdio or http\n";
         return 1;
+    }
+
+    if (options.authToken.empty()) {
+        if (const char* environmentToken = std::getenv("IGI1CONV_MCP_TOKEN"))
+            options.authToken = environmentToken;
+    } else {
+        std::cerr << "igi1conv mcp: warning: --auth-token is visible in the process command line; "
+                     "prefer IGI1CONV_MCP_TOKEN\n";
     }
 
     igi1conv::McpDispatcher dispatcher(igi1conv::ExecuteMcpGameCommand);

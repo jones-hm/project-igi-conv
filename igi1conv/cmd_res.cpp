@@ -314,23 +314,28 @@ int cmd_res(int argc, char** argv)
         std::vector<RESEntry> entries;
         int replaced = 0, kept = 0;
         std::set<std::string> matchedNames;
+        std::string replacementError;
         std::string err;
         bool ok = RES_ForEachEntry(orig_res,
             [&](const std::string& name, const uint8_t* data, size_t size) {
+                if (!replacementError.empty()) return;
                 RESEntry entry;
                 entry.name = name; // preserve the EXACT original entry name
                 std::string base = std::filesystem::path(name).filename().string();
                 auto it = byName.find(base);
                 if (it != byName.end()) {
                     std::ifstream ifs(it->second, std::ios::binary);
-                    if (ifs) {
-                        entry.data.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
-                        matchedNames.insert(base);
-                        ++replaced;
-                    } else {
-                        entry.data.assign(data, data + size); // fall back to original
-                        ++kept;
+                    if (!ifs) {
+                        replacementError = "cannot read replacement file: " + it->second.string();
+                        return;
                     }
+                    entry.data.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+                    if (ifs.bad() || (ifs.fail() && !ifs.eof())) {
+                        replacementError = "replacement read failed: " + it->second.string();
+                        return;
+                    }
+                    matchedNames.insert(base);
+                    ++replaced;
                 } else {
                     entry.data.assign(data, data + size);
                     ++kept;
@@ -339,6 +344,10 @@ int cmd_res(int argc, char** argv)
             }, err);
         if (!ok) {
             std::cerr << "res repack: failed to read " << orig_res << ": " << err << "\n";
+            return 3;
+        }
+        if (!replacementError.empty()) {
+            std::cerr << "res repack: " << replacementError << "\n";
             return 3;
         }
 

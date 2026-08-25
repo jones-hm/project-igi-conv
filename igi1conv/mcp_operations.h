@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -10,6 +11,11 @@ struct GameOperation {
     std::string description;
     bool writesGame = false;
     std::vector<std::string> commandPrefix;
+    // Positional arguments that name source files or directories.  The MCP
+    // layer uses these declarations when rejecting output collisions.
+    std::vector<std::size_t> inputPositions;
+    // Options whose following value names another source file or directory.
+    std::vector<std::string> inputOptions;
 };
 
 // The deterministic allowlist for the MCP game-editing surface.  GUI

@@ -4,10 +4,16 @@
 #include "../../third_party/tinygltf/stb_image.h"
 #include <filesystem>
 #include <fstream>
+#include <chrono>
 #include <vector>
 #include <cstring>
 #include <limits>
 #include <new>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -142,14 +148,47 @@ bool WriteOlm(const std::string& path, const OLMFile& olm, std::string& err) {
               std::to_string(olm.layer.pixel_height) + " (" + std::to_string(expected) + ")";
         return false;
     }
-    std::ofstream f(path, std::ios::binary | std::ios::trunc);
-    if (!f.is_open()) { err = "cannot open output for writing: " + path; return false; }
+    const fs::path target(path);
+    const fs::path temporary = target.string() + ".tmp-"
+        + std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    std::ofstream f(temporary, std::ios::binary | std::ios::trunc);
+    if (!f.is_open()) { err = "cannot open temporary output for writing: " + temporary.string(); return false; }
 
     f.write(reinterpret_cast<const char*>(&olm.header), sizeof(OlmMainHeader));
     f.write(reinterpret_cast<const char*>(&olm.layer), sizeof(OlmLayerDescriptor));
     f.write(reinterpret_cast<const char*>(olm.pixels.data()),
             static_cast<std::streamsize>(olm.pixels.size() * sizeof(OlmPixel)));
-    if (!f.good()) { err = "write error on: " + path; return false; }
+    f.flush();
+    if (!f.good()) {
+        err = "write error on: " + temporary.string();
+        f.close();
+        std::error_code ignored;
+        fs::remove(temporary, ignored);
+        return false;
+    }
+    f.close();
+    if (f.fail()) {
+        err = "close/flush error on: " + temporary.string();
+        std::error_code ignored;
+        fs::remove(temporary, ignored);
+        return false;
+    }
+
+    bool replaced = false;
+#ifdef _WIN32
+    replaced = MoveFileExW(temporary.wstring().c_str(), target.wstring().c_str(),
+                           MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    std::error_code renameError;
+    fs::rename(temporary, target, renameError);
+    replaced = !renameError;
+#endif
+    if (!replaced) {
+        err = "cannot replace output atomically: " + path;
+        std::error_code ignored;
+        fs::remove(temporary, ignored);
+        return false;
+    }
     return true;
 }
 
@@ -227,8 +266,9 @@ static int do_olm_from_png(const std::string& input, const std::string& outpath,
     if (!templatePath.empty()) {
         templateOlm = ParseOlm(templatePath);
         if (!templateOlm.valid) {
-            std::cerr << "olm: warning: template parse failed (" << templateOlm.error
-                       << "), using default header\n";
+            std::cerr << "olm: template parse failed: " << templateOlm.error << "\n";
+            stbi_image_free(pixels);
+            return 3;
         }
     }
 
