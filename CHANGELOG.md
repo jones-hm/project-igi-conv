@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.11.0-rc.1] - 2026-08-25
+
+This pre-release packages the game-facing MCP server and its final runtime
+hardening on `feature/mcp-support`. The executable and Windows file metadata
+report numeric version `1.11.0`; `-rc.1` identifies this GitHub release
+candidate.
+
+### MCP hardening
+- Added bounded HTTP request-body handling with an explicit `413 Payload Too
+  Large` response for bodies above the 8 MiB MCP message limit.
+- Added a real-process HTTP regression for the oversized-body path and repeated
+  in-process transport coverage to catch startup and socket timing races.
+- Added a live-matrix registry guard that compares the operation enum returned
+  by `tools/list` with the tested MCP operation registry.
+- Added per-operation MCP results and an explicit artifact-root option so live
+  test output can remain on the configured `D:\IGI1` test volume.
+- Kept the reviewed MCP boundary: game-data operations and validated QSC edits
+  only; no shell execution, arbitrary executable paths, or editor-only state.
+
+### Verification
+- Deployed GoogleTest suite: 167 tests, 158 passed, 9 explicitly skipped
+  corpus-dependent cases, 0 failures.
+- Live CLI/MCP matrix from `D:\IGI1`: 61 case entries, 58 registered unique
+  MCP operations, 100% applicable coverage for both paths, all MCP cases
+  passed, and protected input integrity remained true.
+- Real-process MCP smoke: stdio, HTTP lifecycle/session behavior, CORS,
+  authentication, remote-bind guard, and oversized-body `413` behavior passed.
+
 ## [1.11.0] - 2026-06-25
 
 ### Added

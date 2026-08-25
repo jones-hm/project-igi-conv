@@ -38,7 +38,7 @@ quint16 FindFreePort() {
 HttpResponse SendHttp(quint16 port, const QByteArray& method, const QByteArray& endpoint,
                       const QByteArray& body, const QByteArray& origin = {},
                       const QByteArray& authorization = {}, const QByteArray& session = {},
-                      bool includeHost = true) {
+                      bool includeHost = true, int declaredContentLength = -1) {
     HttpResponse response;
     for (int attempt = 0; attempt < 50; ++attempt) {
         QTcpSocket socket;
@@ -57,7 +57,9 @@ HttpResponse SendHttp(quint16 port, const QByteArray& method, const QByteArray& 
         if (!origin.isEmpty()) request += "Origin: " + origin + "\r\n";
         if (!authorization.isEmpty()) request += "Authorization: " + authorization + "\r\n";
         if (!session.isEmpty()) request += "Mcp-Session-Id: " + session + "\r\n";
-        request += "Content-Length: " + QByteArray::number(body.size()) + "\r\n\r\n" + body;
+        const int contentLength = declaredContentLength >= 0
+            ? declaredContentLength : body.size();
+        request += "Content-Length: " + QByteArray::number(contentLength) + "\r\n\r\n" + body;
         socket.write(request);
         if (!socket.waitForBytesWritten(1000)) return response;
         QByteArray raw;
@@ -209,12 +211,13 @@ TEST(McpTransport, ExercisesHttpProtocolAndSecurityPathsInProcess) {
                                const QByteArray& endpoint, const QByteArray& body,
                                const QByteArray& requestOrigin = {},
                                const QByteArray& authorization = {},
-                               bool includeHost = true) {
+                               bool includeHost = true, int declaredContentLength = -1) {
         int result = -1;
         std::thread worker([&] { result = igi1conv::RunMcpHttp(dispatcher, serverOptions); });
         WaitForHttpServer(worker);
         const HttpResponse response = SendHttp(serverOptions.port, "POST", endpoint, body,
-                                                requestOrigin, authorization, {}, includeHost);
+                                                requestOrigin, authorization, {}, includeHost,
+                                                declaredContentLength);
         worker.join();
         EXPECT_EQ(result, 0);
         return response;
@@ -255,6 +258,9 @@ TEST(McpTransport, ExercisesHttpProtocolAndSecurityPathsInProcess) {
     igi1conv::McpHttpOptions oversizedOptions;
     oversizedOptions.port = FindFreePort();
     oversizedOptions.maxRequests = 1;
-    QByteArray oversized(8 * 1024 * 1024 + 1, 'x');
-    EXPECT_EQ(runSingle(oversizedOptions, "/mcp", oversized).status, 400);
+    const int oversizedLength = 8 * 1024 * 1024 + 1;
+    const HttpResponse oversizedResponse =
+        runSingle(oversizedOptions, "/mcp", {}, {}, {}, true, oversizedLength);
+    EXPECT_EQ(oversizedResponse.status, 413);
+    EXPECT_TRUE(oversizedResponse.body.contains("too large"));
 }

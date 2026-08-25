@@ -44,7 +44,9 @@ actual `POST` request.
 
 Malformed JSON-RPC request objects receive an error response with `id: null`;
 valid notifications remain response-free. HTTP headers and bodies are bounded
-by the server message limit before additional bytes are read.
+by the server message limit before additional bytes are read. Requests whose
+declared body exceeds the 8 MiB limit receive HTTP `413` with a JSON error and
+are rejected before dispatch.
 
 The current server protocol revision is `2025-11-25`; older supported client
 revisions are negotiated during `initialize`.
@@ -246,6 +248,21 @@ smoke harness is:
 
 ```powershell
 pwsh -File ./tests/mcp_smoke.ps1
+```
+
+For a deployed Windows validation run, keep generated output on the game test
+volume and provide the deployed executable explicitly:
+
+```powershell
+pwsh -File ./tests/mcp_smoke.ps1 `
+  -Executable D:\IGI1\mcp-tests\igi1conv.exe `
+  -ArtifactRoot D:\IGI1\tests_temp\mcp-smoke
+
+pwsh -File ./tests/live_igi1_matrix.ps1 `
+  -GamePath D:\IGI1 `
+  -Executable D:\IGI1\mcp-tests\igi1conv.exe `
+  -ArtifactRoot D:\IGI1\tests_temp\live-matrix `
+  -KeepArtifacts
 ```
 
 It exercises stdio, a real QSC list/edit request, HTTP initialization,

@@ -378,3 +378,13 @@ exit codes, recursive directory walker with mixed good/bad inputs, and
 **Description:** The follow-up MCP review identified timing-sensitive token comparison, missing Host validation, serial slowloris handling, command-line token exposure, unsafe lightmap argument parsing, incomplete input/output collision coverage, non-atomic OLM/RES writes, QSC selector ambiguity for unparseable IDs, empty model-id acceptance, missing in-process HTTP coverage, and release-documentation contradictions.
 
 **Resolution:** Added digest-based constant-time token checks with bounded per-peer failure backoff, exact configured Host validation, bounded concurrent Qt HTTP workers, `IGI1CONV_MCP_TOKEN` environment support, strict lightmap option/value/range validation, declarative per-operation input metadata plus directory containment checks, atomic temporary-file replacement with close/read error handling for OLM/RES outputs, parsed-task-id tracking and strict QSC summary errors, explicit empty `model_id` rejection, in-process HTTP security tests, and aligned the changelog/README/format documentation with the shipped MCP surface.
+
+## Bug ID: MCP-HTTP-Oversized-Body-Status (2026-08-25)
+**Description:** The HTTP transport rejected a request whose declared body exceeded the 8 MiB MCP limit, but returned the generic `400 Bad Request` status and the test did not isolate the declared-length guard from a truncated-body condition.
+
+**Resolution:** Propagated the request error status from bounded HTTP parsing, returned `413 Payload Too Large` with an explicit size-limit message, and changed the regression to send an oversized declared `Content-Length` without allocating or transmitting an 8 MiB body. Added the same assertion to the deployed real-process smoke test.
+
+## Bug ID: MCP-Live-Test-Artifact-Volume (2026-08-25)
+**Description:** The live CLI/MCP matrix and smoke harness wrote generated files through the system temporary directory. On the test machine, that volume had no usable space, causing false output-validation failures and preventing all live testing from remaining under `D:\IGI1`.
+
+**Resolution:** Added explicit `-ArtifactRoot` parameters to both harnesses, resolved them to ordinary filesystem paths, and ran the final deployed tests with their artifacts rooted under `D:\IGI1\tests_temp`. The matrix now records per-operation results and independently verifies that all 58 operations returned by `tools/list` are covered.

@@ -245,7 +245,9 @@ QByteArray ErrorBody(const QString& message) {
     return QJsonDocument(error).toJson(QJsonDocument::Compact);
 }
 
-bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error) {
+bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error,
+                     int& errorStatus) {
+    errorStatus = 400;
     QElapsedTimer deadline;
     deadline.start();
     const auto waitForRead = [&]() {
@@ -314,9 +316,13 @@ bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error) {
     const bool bodylessRequest = (requestLine.at(0) == "GET" || requestLine.at(0) == "OPTIONS")
         && contentLengthHeader.isEmpty();
     const int contentLength = bodylessRequest ? 0 : contentLengthHeader.toInt(&ok);
-    if (!bodylessRequest && (!ok || contentLength < 0
-                         || contentLength > static_cast<int>(kMaxMessageBytes))) {
+    if (!bodylessRequest && (!ok || contentLength < 0)) {
         error = QStringLiteral("missing or invalid Content-Length");
+        return false;
+    }
+    if (!bodylessRequest && contentLength > static_cast<int>(kMaxMessageBytes)) {
+        error = QStringLiteral("HTTP request body is too large");
+        errorStatus = 413;
         return false;
     }
     const int bodyStart = headerEnd + 4;
@@ -337,8 +343,9 @@ void HandleHttpConnection(QTcpSocket& socket, const McpDispatcher& dispatcher,
                           std::mutex& authFailuresMutex) {
     QByteArray request;
     QString requestError;
-    if (!ReadHttpRequest(socket, request, requestError)) {
-        WriteHttpResponse(socket, 400, ErrorBody(requestError), "application/json");
+    int requestErrorStatus = 400;
+    if (!ReadHttpRequest(socket, request, requestError, requestErrorStatus)) {
+        WriteHttpResponse(socket, requestErrorStatus, ErrorBody(requestError), "application/json");
         return;
     }
 

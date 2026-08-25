@@ -1,7 +1,8 @@
 param(
     [string]$Executable = "",
     [int]$HttpPort = 18767,
-    [string]$QtBin = $env:IGI1CONV_QT_BIN
+    [string]$QtBin = $env:IGI1CONV_QT_BIN,
+    [string]$ArtifactRoot = (Join-Path $PSScriptRoot "..\tests_temp")
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,10 +52,37 @@ function Http-Headers([string]$Origin, [string]$SessionId = "", [string]$Accept 
     return $headers
 }
 
-$fixture = Join-Path $root "tests\fixtures\mcp_game_objects.qsc"
+function Send-RawHttp([int]$Port, [string]$Request) {
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $client.Connect("127.0.0.1", $Port)
+        $stream = $client.GetStream()
+        $stream.ReadTimeout = 5000
+        $bytes = [System.Text.Encoding]::ASCII.GetBytes($Request)
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+        $buffer = New-Object byte[] 8192
+        $output = [System.IO.MemoryStream]::new()
+        try {
+            while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $output.Write($buffer, 0, $read)
+            }
+            return [System.Text.Encoding]::ASCII.GetString($output.ToArray())
+        } finally {
+            $output.Dispose()
+        }
+    } finally {
+        $client.Dispose()
+    }
+}
+
+$bundledFixture = Join-Path $PSScriptRoot "fixtures\mcp_game_objects.qsc"
+$fixture = if (Test-Path -LiteralPath $bundledFixture) { $bundledFixture } else { Join-Path $root "tests\fixtures\mcp_game_objects.qsc" }
 Assert-Condition (Test-Path -LiteralPath $fixture) "MCP fixture is missing: $fixture"
-$objectOutput = Join-Path ([System.IO.Path]::GetTempPath()) ("igi1conv_mcp_smoke_" + [guid]::NewGuid().ToString("N") + ".qsc")
-$weaponOutput = Join-Path ([System.IO.Path]::GetTempPath()) ("igi1conv_mcp_weapon_smoke_" + [guid]::NewGuid().ToString("N") + ".qsc")
+New-Item -ItemType Directory -Path $ArtifactRoot -Force | Out-Null
+$artifactRoot = Convert-Path -LiteralPath $ArtifactRoot
+$objectOutput = Join-Path $artifactRoot ("igi1conv_mcp_smoke_" + [guid]::NewGuid().ToString("N") + ".qsc")
+$weaponOutput = Join-Path $artifactRoot ("igi1conv_mcp_weapon_smoke_" + [guid]::NewGuid().ToString("N") + ".qsc")
 
 # Real stdio process: lifecycle, tool discovery, and a game-data operation.
 $stdio = Start-Child @("mcp", "--transport", "stdio")
@@ -239,6 +267,15 @@ try {
         if ($_.Exception.Response.StatusCode.value__ -ne 403) { throw }
     }
     Assert-Condition (-not $invalidOriginAccepted) "invalid Origin was accepted"
+    $oversizedRequest = "POST /mcp HTTP/1.1`r`n" +
+        "Host: 127.0.0.1:$HttpPort`r`n" +
+        "Accept: application/json, text/event-stream`r`n" +
+        "Content-Type: application/json`r`n" +
+        "MCP-Protocol-Version: 2025-11-25`r`n" +
+        "Content-Length: 8388609`r`n`r`n"
+    $oversizedRaw = Send-RawHttp $HttpPort $oversizedRequest
+    Assert-Condition ($oversizedRaw.StartsWith("HTTP/1.1 413 ")) "oversized HTTP body was not rejected with 413"
+    Assert-Condition ($oversizedRaw.Contains("HTTP request body is too large")) "oversized HTTP error did not identify the size limit"
     Write-Output "http: PASS"
 }
 finally {

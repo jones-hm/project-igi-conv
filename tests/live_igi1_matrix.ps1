@@ -4,6 +4,7 @@
 param(
     [string]$GamePath = 'D:\IGI1',
     [string]$Executable = (Join-Path $PSScriptRoot '..\bin\Release\igi1conv.exe'),
+    [string]$ArtifactRoot = (Join-Path $PSScriptRoot '..\tests_temp'),
     [switch]$KeepArtifacts
 )
 
@@ -143,7 +144,9 @@ $GamePath = Require-Directory $GamePath 'game directory'
 $Executable = (Resolve-Path -LiteralPath $Executable).Path
 
 $stamp = [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')
-$artifactRoot = Join-Path ([IO.Path]::GetTempPath()) "igi1conv-live-$stamp-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $ArtifactRoot -Force | Out-Null
+$artifactBase = Convert-Path -LiteralPath $ArtifactRoot
+$artifactRoot = Join-Path $artifactBase "igi1conv-live-$stamp-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $artifactRoot | Out-Null
 $results = [System.Collections.Generic.List[object]]::new()
 $mcpResults = [System.Collections.Generic.List[object]]::new()
@@ -369,6 +372,15 @@ try {
     if ($toolNames.Count -ne 2 -or $toolNames -notcontains 'igi_game_command' -or $toolNames -notcontains 'igi_game_object_edit') {
         throw "MCP tools/list did not expose exactly the two game-facing tools"
     }
+    $commandTool = $toolList.result.tools | Where-Object { $_.name -eq 'igi_game_command' } | Select-Object -First 1
+    $registeredOperations = @($commandTool.inputSchema.properties.command.enum |
+        ForEach-Object { [string]$_ } | Sort-Object -Unique)
+    $matrixOperations = @($mcpCases.Registry | Sort-Object -Unique)
+    $missingMatrixOperations = @($registeredOperations | Where-Object { $_ -notin $matrixOperations })
+    $unexpectedMatrixOperations = @($matrixOperations | Where-Object { $_ -notin $registeredOperations })
+    if ($missingMatrixOperations.Count -gt 0 -or $unexpectedMatrixOperations.Count -gt 0) {
+        throw "Live matrix registry mismatch; missing=$($missingMatrixOperations -join ',') unexpected=$($unexpectedMatrixOperations -join ',')"
+    }
     $capability = $mcpResults | Where-Object { $_.id -eq 4 } | Select-Object -First 1
     if (-not [string]$capability.result.contents[0].text -or [string]$capability.result.contents[0].text -notmatch 'game-facing') {
         throw 'MCP game capabilities resource was missing or not game-facing'
@@ -412,6 +424,8 @@ try {
         protected_inputs_unchanged = ($mutated.Count -eq 0 -and $mcpMutated.Count -eq 0)
         cli = [ordered]@{ cases=$cliCaseCount; applicable=$cliApplicable; passed=$cliPassed; coverage_percent=$cliRate; results=$results }
         mcp_stdio = [ordered]@{ cases=$mcpCaseCount; passed_cases=$mcpPassedCases; applicable=$mcpApplicable; passed=$mcpPassed; coverage_percent=$mcpRate; tool_names=$toolNames }
+        mcp_registry = [ordered]@{ registered=$registeredOperations; covered=$matrixOperations; missing=$missingMatrixOperations; unexpected=$unexpectedMatrixOperations }
+        mcp_results = $mcpCaseStatuses
         artifact_root = $artifactRoot
     }
     $reportPath = Join-Path $artifactRoot 'live-matrix.json'
@@ -421,6 +435,7 @@ try {
     Write-Output "LIVE_MCP_CASES=$mcpCaseCount"
     Write-Output "LIVE_MCP_CASE_PASS=$mcpPassedCases/$mcpCaseCount"
     Write-Output "LIVE_MCP_COVERAGE=$mcpPassed/$mcpApplicable unique-operations ($mcpRate%)"
+    Write-Output "LIVE_MCP_REGISTRY=$($registeredOperations.Count) registered/$($matrixOperations.Count) covered"
     Write-Output "LIVE_INPUT_INTEGRITY=$($mutated.Count -eq 0)"
     Write-Output "LIVE_REPORT=$reportPath"
     if ($cliRate -lt 100 -or $mcpRate -lt 100 -or $mcpPassedCases -ne $mcpCaseCount) { throw 'Live operation coverage is below the required 100% gate' }
