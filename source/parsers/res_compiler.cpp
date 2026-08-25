@@ -5,9 +5,15 @@
 #include "qsc_parser.h"
 #include <fstream>
 #include <filesystem>
+#include <chrono>
 #include <iostream>
 #include <vector>
 #include <cstring>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 static const uint32_t FOURCC_ILFF = 0x46464C49; // "ILFF"
 static const uint32_t FOURCC_IRES = 0x53455249; // "IRES"
@@ -42,6 +48,24 @@ static void WriteResChunk(std::ostream& os, uint32_t fourcc,
     WriteU32LE(os, skip);
     if (dataSize) os.write(reinterpret_cast<const char*>(data), dataSize);
     if (padding) { char pad[3] = {0}; os.write(pad, padding); }
+}
+
+static bool ReplaceFileAtomically(const std::filesystem::path& temporary,
+                                  const std::filesystem::path& target,
+                                  std::string& error) {
+#ifdef _WIN32
+    if (MoveFileExW(temporary.wstring().c_str(), target.wstring().c_str(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0)
+        return true;
+#else
+    std::error_code renameError;
+    std::filesystem::rename(temporary, target, renameError);
+    if (!renameError) return true;
+    error = renameError.message();
+    return false;
+#endif
+    error = "atomic replacement failed";
+    return false;
 }
 
 bool RES_GenerateQSC(const std::string& inputDirStr, const std::string& outQSCPath, const std::string& outResName, std::string& error, const std::string& prefix) {
@@ -210,8 +234,11 @@ bool RES_Compile(const std::string& scriptPath, std::string& error) {
 }
 
 bool RES_WriteEntries(const std::vector<RESEntry>& entries, const std::string& outPath, std::string& error) {
-    std::ofstream os(outPath, std::ios::binary);
-    if (!os) { error = "Failed to create output file: " + outPath; return false; }
+    const std::filesystem::path target(outPath);
+    const std::filesystem::path temporary = target.string() + ".tmp-"
+        + std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    std::ofstream os(temporary, std::ios::binary);
+    if (!os) { error = "Failed to create temporary output file: " + temporary.string(); return false; }
 
     // ILFF header (size patched at end).
     WriteFourCC(os, FOURCC_ILFF);
@@ -236,13 +263,46 @@ bool RES_WriteEntries(const std::vector<RESEntry>& entries, const std::string& o
     }
 
     // Verify the stream survived all writes before patching the header.
-    if (!os.good()) { error = "write failed (stream error) for " + outPath; return false; }
+    if (!os.good()) {
+        error = "write failed (stream error) for " + outPath;
+        os.close();
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        return false;
+    }
 
-    uint32_t finalSize = static_cast<uint32_t>(os.tellp());
+    const std::streampos finalPosition = os.tellp();
+    if (finalPosition < 0) {
+        error = "could not determine output size for " + outPath;
+        os.close();
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        return false;
+    }
+    uint32_t finalSize = static_cast<uint32_t>(finalPosition);
     os.seekp(4, std::ios::beg);
     WriteU32LE(os, finalSize);
     os.flush();
-    if (!os.good()) { error = "header patch/flush failed for " + outPath; return false; }
+    if (!os.good()) {
+        error = "header patch/flush failed for " + outPath;
+        os.close();
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        return false;
+    }
+    os.close();
+    if (os.fail()) {
+        error = "close/flush failed for " + outPath;
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        return false;
+    }
+    if (!ReplaceFileAtomically(temporary, target, error)) {
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        error = "could not atomically replace " + outPath + ": " + error;
+        return false;
+    }
     return true;
 }
 

@@ -37,6 +37,107 @@ struct Token {
     std::string text;
 };
 
+// Decompiled QSC may contain both line and block comments between arguments.
+// Keep all scanners on the same lexical rules so text such as `Task_New` or
+// parentheses inside a comment cannot become part of the parsed object tree.
+static bool skipTrivia(const std::string& src, size_t& pos, std::string* err = nullptr) {
+    while (pos < src.size()) {
+        if (std::isspace(static_cast<unsigned char>(src[pos]))) {
+            ++pos;
+            continue;
+        }
+        if (pos + 1 < src.size() && src[pos] == '/' && src[pos + 1] == '/') {
+            pos += 2;
+            while (pos < src.size() && src[pos] != '\n') ++pos;
+            continue;
+        }
+        if (pos + 1 < src.size() && src[pos] == '/' && src[pos + 1] == '*') {
+            const size_t end = src.find("*/", pos + 2);
+            if (end == std::string::npos) {
+                if (err) *err = "unterminated block comment";
+                pos = src.size();
+                return false;
+            }
+            pos = end + 2;
+            continue;
+        }
+        break;
+    }
+    return true;
+}
+
+static size_t skipQuotedString(const std::string& src, size_t pos) {
+    ++pos;
+    while (pos < src.size()) {
+        if (src[pos] == '\\' && pos + 1 < src.size()) {
+            pos += 2;
+            continue;
+        }
+        if (src[pos] == '"') return pos + 1;
+        ++pos;
+    }
+    return src.size();
+}
+
+static size_t findCodeToken(const std::string& src, size_t from,
+                            const std::string& token, bool& malformed) {
+    malformed = false;
+    size_t pos = from;
+    while (pos < src.size()) {
+        if (src[pos] == '"') {
+            pos = skipQuotedString(src, pos);
+            continue;
+        }
+        if (pos + 1 < src.size() && src[pos] == '/' && src[pos + 1] == '/') {
+            pos += 2;
+            while (pos < src.size() && src[pos] != '\n') ++pos;
+            continue;
+        }
+        if (pos + 1 < src.size() && src[pos] == '/' && src[pos + 1] == '*') {
+            const size_t end = src.find("*/", pos + 2);
+            if (end == std::string::npos) {
+                malformed = true;
+                return std::string::npos;
+            }
+            pos = end + 2;
+            continue;
+        }
+        if (pos + token.size() <= src.size() && src.compare(pos, token.size(), token) == 0)
+            return pos;
+        ++pos;
+    }
+    return std::string::npos;
+}
+
+static std::string removeComments(const std::string& src) {
+    std::string result;
+    result.reserve(src.size());
+    size_t pos = 0;
+    while (pos < src.size()) {
+        if (src[pos] == '"') {
+            const size_t end = skipQuotedString(src, pos);
+            result.append(src, pos, end - pos);
+            pos = end;
+            continue;
+        }
+        if (pos + 1 < src.size() && src[pos] == '/' && src[pos + 1] == '/') {
+            result.push_back(' ');
+            pos += 2;
+            while (pos < src.size() && src[pos] != '\n') ++pos;
+            continue;
+        }
+        if (pos + 1 < src.size() && src[pos] == '/' && src[pos + 1] == '*') {
+            result.push_back(' ');
+            const size_t end = src.find("*/", pos + 2);
+            if (end == std::string::npos) break;
+            pos = end + 2;
+            continue;
+        }
+        result.push_back(src[pos++]);
+    }
+    return result;
+}
+
 static bool isNumberStart(char c) {
     return std::isdigit(static_cast<unsigned char>(c)) || c == '-' || c == '+' || c == '.';
 }
@@ -66,8 +167,7 @@ static std::vector<Token> tokenizeArgs(const std::string& src, size_t& pos, std:
             if (err) *err = "Task_New arg list exceeded " + std::to_string(kMaxTokens) + " tokens";
             return out;
         }
-        // skip whitespace
-        while (pos < src.size() && std::isspace(static_cast<unsigned char>(src[pos]))) ++pos;
+        if (!skipTrivia(src, pos, err)) return out;
         if (pos >= src.size()) break;
         if (src[pos] == ')') { ++pos; return out; }
         if (src[pos] == ',') { ++pos; continue; }
@@ -107,17 +207,17 @@ static std::vector<Token> tokenizeArgs(const std::string& src, size_t& pos, std:
             int depth = 1;
             ++pos;
             while (pos < src.size() && depth > 0) {
+                if (src[pos] == '"') {
+                    pos = skipQuotedString(src, pos);
+                    continue;
+                }
+                if (pos + 1 < src.size() && src[pos] == '/' &&
+                    (src[pos + 1] == '/' || src[pos + 1] == '*')) {
+                    if (!skipTrivia(src, pos, err)) return out;
+                    continue;
+                }
                 if (src[pos] == '(') ++depth;
                 else if (src[pos] == ')') --depth;
-                // Honour string boundaries so a ')' inside a string
-                // doesn't decrement the depth.
-                else if (src[pos] == '"') {
-                    ++pos;
-                    while (pos < src.size() && src[pos] != '"') {
-                        if (src[pos] == '\\' && pos + 1 < src.size()) ++pos;
-                        ++pos;
-                    }
-                }
                 ++pos;
             }
             out.push_back({Tk::Bad, src.substr(start, pos - start)});
@@ -169,6 +269,7 @@ static std::string stripQuotes(const std::string& s) {
 
 QscObjectSet QscObjectSet::parse(const std::string& qscText, std::string* err) {
     QscObjectSet set;
+    if (err) *err = "";
 
     // Hard upper bound on how many Task_New occurrences we'll walk
     // through - protects against pathological inputs.
@@ -184,7 +285,12 @@ QscObjectSet QscObjectSet::parse(const std::string& qscText, std::string* err) {
             if (err) *err = "Task_New scan exceeded " + std::to_string(kMaxCalls) + " occurrences";
             break;
         }
-        size_t p = qscText.find(needle, searchFrom);
+        bool malformed = false;
+        size_t p = findCodeToken(qscText, searchFrom, needle, malformed);
+        if (malformed) {
+            if (err) *err = "unterminated block comment";
+            break;
+        }
         if (p == std::string::npos) break;
         // require word boundary before the call name
         bool leftOk = (p == 0)
@@ -192,9 +298,9 @@ QscObjectSet QscObjectSet::parse(const std::string& qscText, std::string* err) {
                           && qscText[p - 1] != '_');
         if (!leftOk) { searchFrom = p + needle.size(); continue; }
         size_t parenPos = p + needle.size();
-        // skip whitespace
-        while (parenPos < qscText.size()
-               && std::isspace(static_cast<unsigned char>(qscText[parenPos]))) ++parenPos;
+        // Skip whitespace and comments between the call name and its
+        // opening parenthesis, just as we do while tokenising arguments.
+        if (!skipTrivia(qscText, parenPos, err)) break;
         if (parenPos >= qscText.size() || qscText[parenPos] != '(') {
             searchFrom = p + needle.size();
             continue;
@@ -259,7 +365,6 @@ QscObjectSet QscObjectSet::parse(const std::string& qscText, std::string* err) {
         searchFrom = p + needle.size();
     }
 
-    if (err) *err = "";
     return set;
 }
 
@@ -311,17 +416,18 @@ struct TaskCall { size_t openParen; size_t closeParen; };
 // starts at `taskNewPos`. Honours string boundaries and nested parens.
 bool FindCallSpan(const std::string& s, size_t taskNewPos, TaskCall& out) {
     size_t p = taskNewPos + 8; // strlen("Task_New")
-    while (p < s.size() && std::isspace(static_cast<unsigned char>(s[p]))) ++p;
+    if (!skipTrivia(s, p)) return false;
     if (p >= s.size() || s[p] != '(') return false;
     out.openParen = p;
     size_t depth = 1, i = p + 1;
     while (i < s.size() && depth > 0) {
         if (s[i] == '"') {
-            ++i;
-            while (i < s.size() && s[i] != '"') {
-                if (s[i] == '\\' && i + 1 < s.size()) ++i;
-                ++i;
-            }
+            i = skipQuotedString(s, i);
+            continue;
+        } else if (i + 1 < s.size() && s[i] == '/' &&
+                   (s[i + 1] == '/' || s[i + 1] == '*')) {
+            if (!skipTrivia(s, i)) return false;
+            continue;
         } else if (s[i] == '(') {
             ++depth;
         } else if (s[i] == ')') {
@@ -340,17 +446,18 @@ std::vector<std::string> ExtractDirectStrings(const std::string& s, size_t openP
     size_t j = openParen + 1;
     int depth = 0;
     while (j < closeParen) {
+        if (j + 1 < closeParen && s[j] == '/' &&
+            (s[j + 1] == '/' || s[j + 1] == '*')) {
+            if (!skipTrivia(s, j)) break;
+            continue;
+        }
         if (s[j] == '(') { ++depth; ++j; continue; }
         if (s[j] == ')') { --depth; ++j; continue; }
         if (depth == 0 && s[j] == '"') {
             size_t st = j;
-            ++j;
-            while (j < closeParen && s[j] != '"') {
-                if (s[j] == '\\' && j + 1 < closeParen) ++j;
-                ++j;
-            }
-            out.push_back(s.substr(st + 1, j - st - 1));
-            ++j;
+            j = skipQuotedString(s, j);
+            if (j <= closeParen && j > st + 1 && s[j - 1] == '"')
+                out.push_back(s.substr(st + 1, j - st - 2));
             continue;
         }
         ++j;
@@ -366,7 +473,7 @@ std::vector<std::string> ExtractDirectStrings(const std::string& s, size_t openP
 // since real root-level tasks always have a positive id).
 int32_t ExtractLeadingTaskId(const std::string& s, size_t openParen, size_t closeParen) {
     size_t j = openParen + 1;
-    while (j < closeParen && std::isspace(static_cast<unsigned char>(s[j]))) ++j;
+    if (!skipTrivia(s, j) || j >= closeParen) return -1;
     size_t start = j;
     if (j < closeParen && (s[j] == '-' || s[j] == '+')) ++j;
     while (j < closeParen && std::isdigit(static_cast<unsigned char>(s[j]))) ++j;
@@ -390,21 +497,29 @@ std::vector<std::string> ExtractDirectArgs(const std::string& s, size_t openPare
     int depth = 0;
     size_t argStart = j;
     while (j <= closeParen) {
+        if (j < closeParen && j + 1 < closeParen && s[j] == '/' &&
+            (s[j + 1] == '/' || s[j + 1] == '*')) {
+            if (!skipTrivia(s, j)) j = closeParen;
+            continue;
+        }
         if (j == closeParen || (depth == 0 && s[j] == ',')) {
             size_t st = argStart, en = j;
             while (st < en && std::isspace(static_cast<unsigned char>(s[st]))) ++st;
             while (en > st && std::isspace(static_cast<unsigned char>(s[en - 1]))) --en;
-            out.push_back(s.substr(st, en - st));
+            out.push_back(removeComments(s.substr(st, en - st)));
+            while (!out.back().empty() && std::isspace(static_cast<unsigned char>(out.back().back())))
+                out.back().pop_back();
+            size_t cleanStart = 0;
+            while (cleanStart < out.back().size()
+                   && std::isspace(static_cast<unsigned char>(out.back()[cleanStart]))) ++cleanStart;
+            if (cleanStart > 0) out.back().erase(0, cleanStart);
             argStart = j + 1;
             ++j;
             continue;
         }
         if (s[j] == '"') {
-            ++j;
-            while (j < closeParen && s[j] != '"') {
-                if (s[j] == '\\' && j + 1 < closeParen) ++j;
-                ++j;
-            }
+            j = skipQuotedString(s, j);
+            continue;
         } else if (s[j] == '(') {
             ++depth;
         } else if (s[j] == ')') {
@@ -463,6 +578,15 @@ std::vector<std::string> ProcessNode(const std::string& s, size_t openParen, siz
 
     size_t i = openParen + 1;
     while (i < closeParen) {
+        if (s[i] == '"') {
+            i = skipQuotedString(s, i);
+            continue;
+        }
+        if (i + 1 < closeParen && s[i] == '/' &&
+            (s[i + 1] == '/' || s[i + 1] == '*')) {
+            if (!skipTrivia(s, i)) break;
+            continue;
+        }
         if (i + 8 <= closeParen && s.compare(i, 8, "Task_New") == 0 &&
             (i == 0 || (!std::isalnum(static_cast<unsigned char>(s[i - 1])) && s[i - 1] != '_'))) {
             TaskCall childCall;
@@ -551,6 +675,7 @@ LightmapBindingSet::nearestBindingForModelAndPosition(const std::string& modelId
 
 LightmapBindingSet LightmapBindingSet::parse(const std::string& qscText, std::string* err) {
     LightmapBindingSet set;
+    if (err) *err = "";
     constexpr size_t kMaxCalls = 50000;
     size_t scanned = 0;
     size_t i = 0;
@@ -559,7 +684,12 @@ LightmapBindingSet LightmapBindingSet::parse(const std::string& qscText, std::st
             if (err) *err = "Task_New scan exceeded " + std::to_string(kMaxCalls) + " occurrences";
             break;
         }
-        size_t p = qscText.find("Task_New", i);
+        bool malformed = false;
+        size_t p = findCodeToken(qscText, i, "Task_New", malformed);
+        if (malformed) {
+            if (err) *err = "unterminated block comment";
+            break;
+        }
         if (p == std::string::npos) break;
         bool leftOk = (p == 0)
                       || (!std::isalnum(static_cast<unsigned char>(qscText[p - 1]))
@@ -588,7 +718,6 @@ LightmapBindingSet LightmapBindingSet::parse(const std::string& qscText, std::st
         i = call.closeParen + 1;
     }
 
-    if (err) *err = "";
     return set;
 }
 

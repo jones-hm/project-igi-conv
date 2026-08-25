@@ -538,7 +538,7 @@ TEST_F(IGI1ConvTest, MefExportVFlip_BinaryAndTextPathsAgree) {
 // at export time.
 TEST_F(IGI1ConvTest, MefExportVFlip_NoStrayOneMinusVLiterals) {
     namespace fs = std::filesystem;
-    fs::path p = std::filesystem::current_path() / "source/parsers/mef_exporter.cpp";
+    fs::path p = SourceTreeFile("source/parsers/mef_exporter.cpp");
     ASSERT_TRUE(fs::exists(p))
         << "could not locate mef_exporter.cpp at " << p.string();
 
@@ -584,7 +584,7 @@ TEST_F(IGI1ConvTest, MefExportVFlip_NoStrayOneMinusVLiterals) {
 // MefVToObjV.  The viewer code must read `v.uv.y` directly.
 TEST_F(IGI1ConvTest, MefViewerDoesNotFlipV) {
     namespace fs = std::filesystem;
-    fs::path p = std::filesystem::current_path() / "igi1conv/gui_main.cpp";
+    fs::path p = SourceTreeFile("igi1conv/gui_main.cpp");
     ASSERT_TRUE(fs::exists(p))
         << "could not locate gui_main.cpp at " << p.string();
 
@@ -886,17 +886,22 @@ TEST_F(IGI1ConvTest, IffDecompileCreateRoundTrip) {
     // decompiler's text re-encoding rounds times, so the rebuilt
     // duration may differ by 1ms).
     std::string origInfo, newInfo;
-    ASSERT_EQ(RunIGI1Conv("iff info " + Q(f),     &origInfo), 0);
-    ASSERT_EQ(RunIGI1Conv("iff info " + Q(outIff), &newInfo),  0);
-    // iff info writes to file, but the parser uses the file too - read
-    // back from the .info.txt sidecar.
+    // Keep generated reports in the test temp directory. The game corpus may
+    // be read-only, and writing a sidecar beside a source asset makes the
+    // integration test depend on filesystem permissions.
+    std::string origInfoPath = tmp / "original.info.txt";
+    std::string newInfoPath  = tmp / "rebuilt.info.txt";
+    ASSERT_EQ(RunIGI1Conv("iff info " + Q(f) + " -o " + Q(origInfoPath), &origInfo), 0);
+    ASSERT_EQ(RunIGI1Conv("iff info " + Q(outIff) + " -o " + Q(newInfoPath), &newInfo),  0);
+    // iff info writes to the explicit output paths; read the generated
+    // summaries back for the structural assertions.
     auto readInfo = [&](const std::string& iff) {
-        std::ifstream f(iff + ".info.txt");
+        std::ifstream f(iff);
         std::stringstream ss; ss << f.rdbuf();
         return ss.str();
     };
-    std::string origTxt = readInfo(f);
-    std::string newTxt  = readInfo(outIff);
+    std::string origTxt = readInfo(origInfoPath);
+    std::string newTxt  = readInfo(newInfoPath);
     EXPECT_NE(origTxt.find("Bone Count:"), std::string::npos);
     EXPECT_NE(newTxt.find("Bone Count:"),  std::string::npos);
     EXPECT_NE(origTxt.find("Clips:"),       std::string::npos);

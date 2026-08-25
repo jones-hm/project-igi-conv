@@ -6,9 +6,9 @@ This document lists the supported file formats, their conversion targets, and wh
 
 | Format | Description | Conversion / Operations | Status |
 | :--- | :--- | :--- | :--- |
-| **.res** | Resource Archive | List, extract, compile, pack, unpack, append | Supported |
+| **.res** | Resource Archive | List, extract, compile, pack, unpack, append, name-preserving repack | Supported |
 | **.qvm** | Script Bytecode | Decompile to `.qsc`, disassemble, info | Supported |
-| **.qsc** | Script Source Code | Validate, compile back to `.qvm` | Supported |
+| **.qsc** | Script Source Code | Validate, compile back to `.qvm`, list/edit game `Task_New` objects | Supported |
 | **.tex** | Texture Format | Decode, info, convert to `.png` / `.tga`, resize | Supported |
 | **.spr** | Sprite Format | Decode, info, convert to `.png` / `.tga`, resize | Supported |
 | **.pic** | Image Format | Decode, info, convert to `.png` / `.tga`, resize | Supported |
@@ -21,6 +21,17 @@ This document lists the supported file formats, their conversion targets, and wh
 | **graph*.dat** | AI Navigation Graph | Info, export to JSON | Supported |
 | **.IFF** | Skeletal Animation | Info, decompile to text, convert to `.BEF`, create from `.BEF` / decompile text, rebuild round trip, export animated GIF | Supported |
 | **.wav** (IGI) | ILSF audio container | Info, convert RAW / RAW_RESIDENT / ADPCM / ADPCM_RESIDENT to standard `.wav` (no external deps, single binary), batch convert-dir | Supported (all four methods) |
+
+## MCP exposure
+
+The MCP server exposes a subset of the registered game-affecting CLI operations in this matrix,
+including read-only inspection needed to select or verify a game edit. The
+inherently in-place CLI operations `lightmap.recalc`, `mtp.repair`, and
+`mtp.sync` remain CLI-only until they have distinct-output modes; the
+editor-only `iff.export-gif` preview is also not exposed. MCP does not expose
+GUI settings, themes, cache paths, viewer/camera state, playback, layout, or
+other editor-only behavior. See [mcp.md](mcp.md) for the complete registry and
+tool schemas.
 
 ---
 

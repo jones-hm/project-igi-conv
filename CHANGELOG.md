@@ -2,6 +2,160 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.11.0-rc.3] - 2026-08-25
+
+This prerelease supersedes `v1.11.0-rc.2` on `feature/mcp-support` and closes
+the remaining directory-output collision path found by the final independent
+security audit.
+
+### Fixed
+- Rejected output directories that contain an input file, covering commands
+  such as `iff.decompile source.iff .` and `res.unpack archive.res .` before
+  they can materialize files over source data.
+
+### Verification
+- Deployed GoogleTest verification: 170 tests, 161 passed, 9 explicitly
+  skipped corpus-dependent cases, 0 failures.
+- Deployed live verification from `D:\IGI1`: all 58 registered MCP operations
+  were exercised successfully (58/58, 100% operation coverage), alongside
+  four CLI-only cases. This is operation coverage, not source-code coverage.
+
+## [1.11.0-rc.2] - 2026-08-25
+
+This prerelease supersedes `v1.11.0-rc.1` on `feature/mcp-support` and carries
+the follow-up review fixes plus the corrected Windows binary package.
+
+### Fixed
+- Rejected input/output collisions for every MCP output-producing operation,
+  including read-style exporters and implicit/default output paths.
+- Bounded HTTP session retention with expiry and oldest-session eviction so
+  repeated initialization cannot grow memory without limit.
+- Parsed `Content-Length` as a bounded decimal value so values above the
+  32-bit integer range are correctly rejected as `413 Payload Too Large`.
+
+### Release and verification
+- Added `tests/package_mcp_release.ps1`, which defines the binary-only package
+  contents, includes the Qt and MSVC runtimes, and writes SHA-256 checksums
+  after the final ZIP is created.
+- Deployed GoogleTest verification: 169 tests, 160 passed, 9 explicitly
+  skipped corpus-dependent cases, 0 failures.
+- Deployed live verification from `D:\IGI1`: all 58 registered MCP operations
+  were exercised successfully (58/58, 100% operation coverage), alongside
+  four CLI-only cases. This is operation coverage, not source-code coverage.
+
+## [1.11.0-rc.1] - 2026-08-25
+
+This pre-release packages the game-facing MCP server and its final runtime
+hardening on `feature/mcp-support`. The executable and Windows file metadata
+report numeric version `1.11.0`; `-rc.1` identifies this GitHub release
+candidate.
+
+### MCP hardening
+- Added bounded HTTP request-body handling with an explicit `413 Payload Too
+  Large` response for bodies above the 8 MiB MCP message limit.
+- Added a real-process HTTP regression for the oversized-body path and repeated
+  in-process transport coverage to catch startup and socket timing races.
+- Added a live-matrix registry guard that compares the operation enum returned
+  by `tools/list` with the tested MCP operation registry.
+- Added per-operation MCP results and an explicit artifact-root option so live
+  test output can remain on the configured `D:\IGI1` test volume.
+- Kept the reviewed MCP boundary: game-data operations and validated QSC edits
+  only; no shell execution, arbitrary executable paths, or editor-only state.
+
+### Verification
+- Deployed GoogleTest suite: 167 tests, 158 passed, 9 explicitly skipped
+  corpus-dependent cases, 0 failures.
+- Live CLI/MCP matrix from `D:\IGI1`: 61 case entries, 58 registered unique
+  MCP operations, 100% applicable coverage for both paths, all MCP cases
+  passed, and protected input integrity remained true.
+- Real-process MCP smoke: stdio, HTTP lifecycle/session behavior, CORS,
+  authentication, remote-bind guard, and oversized-body `413` behavior passed.
+
+## [1.11.0] - 2026-06-25
+
+### Added
+- **Game-facing MCP server** — `igi1conv mcp` now exposes the registered
+  converter operations through JSON-RPC tools and the
+  `igi1conv://game-capabilities` resource.
+- **Stdio and Streamable HTTP transports** — stdio is the default; HTTP binds
+  to `127.0.0.1:8765/mcp` by default, validates `Origin`, uses per-client
+  sessions, and refuses plaintext non-loopback binds.
+- **QSC game-object editing** — list nested `Task_New` objects and write
+  position, rotation/gamma, model id, team, bone hierarchy, stand animation,
+  or validated indexed task arguments while preserving untouched source text.
+
+### Scope and safety
+- MCP exposes only game-data inspection, validation, conversion, packing, and
+  edits that can affect files consumed by Project IGI.
+- GUI preferences/state, themes, cache paths, viewer/camera transforms,
+  playback controls, layout, shell execution, and arbitrary executables are
+  intentionally unavailable.
+
+### Verification
+- Added focused registry, protocol, QSC editor, and transport tests.
+- Added a real-process stdio/HTTP smoke harness covering a real QSC listing,
+  position/rotation/model/team write-back, Origin rejection, and the remote
+  authentication guard.
+
+### Hardened
+- Removed the editor-only `iff.export-gif` preview from the MCP allowlist.
+- Reject unknown MCP argument fields instead of silently ignoring values that
+  the advertised schemas mark with `additionalProperties: false`.
+- Enforced the `HumanSoldier` layout for named placement fields; other task
+  classes remain available through explicit indexed updates.
+- Rejected malformed quoted QSC literals and added regression coverage.
+- Documented that MCP QSC writes require a distinct output path.
+- Bounded stdio frames before allocation and preserved framing after an
+  oversized request.
+- Made `lightmap.recalc` preflight and transactionally commit `.olm` files so
+  parse/write failures do not intentionally leave a partial edit set.
+- Scoped `working_directory` changes with restoration on failure and exception
+  paths; made QSC object/lightmap scanning ignore block comments consistently.
+- Added bounded HTTP `OPTIONS` CORS preflight handling with explicit allowed
+  methods/headers and no CORS headers on rejected Origins.
+- Rejected lightmap recalculation when the MEF render-block and resolved `.olm`
+  counts differ; validated OLM payload sizes before allocation and PNG
+  dimensions before the OLM `uint16` cast.
+- Rejected unmatched directory files in `res repack`, checked QSC temporary-file
+  flush/close failures, and made the corpus identity test restore every touched
+  `.olm` file even when an assertion exits early.
+- Kept corpus-generated IFF reports in test temporary directories so live
+  integration tests do not require write access beside game assets.
+- Capped HTTP header/body reads to the configured message budget, returned
+  JSON-RPC `-32600` errors for malformed id-less objects, and sourced the MCP
+  server version from the build version definition.
+- Required MCP clients to complete `initialize` before any other method,
+  preserved response-free lifecycle notifications, and returned JSON-RPC parse
+  errors for malformed HTTP request bodies.
+- Rejected in-place output paths for generic write commands, rejected empty
+  direct QSC arguments without shifting indexes, and rejected non-finite or
+  trailing numeric lightmap rotation arguments.
+- Kept inherently in-place `lightmap.recalc`, `mtp.repair`, and `mtp.sync`
+  available to the CLI while excluding them from the MCP registry.
+- Added positional/default output collision checks, per-session HTTP lifecycle
+  state, bounded command output, finite request deadlines, and colocated Qt
+  runtime deployment for Windows builds.
+
+### Added
+- **OLM Writer** — `.olm` lightmaps can now be written, not just read:
+  - `igi1conv olm from-png <in.png> -o <out.olm> [--template <ref.olm>]` — build an `.olm` from a PNG. Dimensions come from the PNG; `--template` copies the runtime header fields (uv scale, version, date, grid) from an existing `.olm` so a rebuilt file matches the original's metadata exactly. Verified by an `olm -> png -> olm -> png` round-trip that preserves the pixel payload byte-for-byte (R/B channel swap cancels out).
+  - New `WriteOlm()` / `BuildOlmFromRGBA()` API in `cmd_olm.h` for in-process use by the recalc path.
+- **`lightmap recalc` command** — re-light a placed object's baked `.olm` files after it has been rotated/moved, without a full radiosity re-bake:
+  - `igi1conv lightmap recalc --model <id> --qsc <objects.qsc> --task-id <id> --mef <file.mef> --rot-orig X,Y,Z --rot-new X,Y,Z --sun-dir X,Y,Z [--sun-color R,G,B] [--ambient R,G,B]`
+  - Each render block's lightmap is rescaled **per channel** by how much more/less its surface now faces the sun — `factor = L(N_new) / L(N_orig)` where `L(N) = ambient + sunColor·max(N·sunDir, 0)`. This preserves the original bake's shadow/ambient-occlusion detail while approximating the new orientation, instead of flattening it to pure direct light. Block normals are derived from triangle geometry (type-3 meshes store UV data in the per-vertex normal slot, so face normals are used). Factors are clamped (`<=4x`, denominator floored) so a previously-shadowed surface can't blow out to white.
+  - An identity rotation (`rot-orig == rot-new`) is a guaranteed no-op (every factor is exactly 1.0), covered by a regression test.
+  - The CLI overwrites the `.olm` files in `lightmaps_unpacked/` in place; this
+    operation is intentionally not exposed through MCP. Repack
+    `lightmaps.res` separately (`res repack`, below) for the game to pick them
+    up.
+- **`res repack` command** — `igi1conv res repack <orig.res> <dir> -o <out.res>` rebuilds a `.res` preserving each original entry's EXACT name, swapping in updated bytes for any entry whose basename matches a file in `<dir>` (all others kept verbatim). This is the safe way to write edited lightmaps back into `lightmaps.res`: plain `res pack`/`--prefix` derive entry names from the on-disk folder layout and cannot reproduce the game's nested `missions/location0/levelN/lightmaps/objNNN.olm` names from a flat `lightmaps_unpacked/` dir. An edit-free repack reproduces the source `.res` byte-for-byte (regression-tested).
+
+### Tests
+- `tests/test_olm_writer.cpp` — OLM writer round-trip (pixel-identical through PNG), from-png with/without template, missing-output usage error, and the recalc identity-rotation no-op invariant. All spawn the built `igi1conv.exe` against the corpus and skip cleanly when `IGI_GAME_PATH` is unset.
+
+### Changed
+- **Version bumped to 1.11.0** (minor: OLM writer + lightmap recalc).
+
 ## [1.10.0] - 2026-06-24
 
 ### Added

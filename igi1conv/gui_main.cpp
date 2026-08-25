@@ -3612,7 +3612,11 @@ public:
 
         QMenu* helpMenu = menuBar()->addMenu("&Help");
         helpMenu->addAction("About", this, [this]() {
-            QMessageBox::about(this, "About", "IGI Game Convertor\nVersion 1.10.0\nAuthor: HeavenHM\nDeveloped in C++ with Qt5/Qt6.\nAdvanced Edition with MEF Native Viewer and full CLI integration.");
+            QMessageBox::about(this, "About",
+                               QString("IGI Game Convertor\nVersion %1\nAuthor: HeavenHM\n"
+                                       "Developed in C++ with Qt5/Qt6.\n"
+                                       "Advanced Edition with MEF Native Viewer and full CLI integration.")
+                                   .arg(QString::fromUtf8(IGI1CONV_VERSION)));
         });
 
         QSplitter* splitter = new QSplitter(Qt::Horizontal, this);

@@ -45,6 +45,27 @@ inline std::string IGI1ConvExe() {
     return ExeDir() + "\\igi1conv.exe";
 }
 
+// Structural tests inspect source files, but the test executable may be
+// copied to a live game directory.  Resolve those files from the checkout
+// recorded by CMake rather than from the caller's working directory.
+inline std::filesystem::path SourceTreeFile(const std::string& relative) {
+#ifdef IGI1CONV_SOURCE_DIR
+    const std::filesystem::path configuredRoot = IGI1CONV_SOURCE_DIR;
+    const std::filesystem::path configuredFile = configuredRoot / relative;
+    if (std::filesystem::exists(configuredFile)) return configuredFile;
+#endif
+
+    // Keep source-tree builds usable if the compile definition is absent.
+    const std::filesystem::path compiledHeader(__FILE__);
+    if (compiledHeader.is_absolute()) {
+        const std::filesystem::path compiledFile =
+            compiledHeader.parent_path().parent_path() / relative;
+        if (std::filesystem::exists(compiledFile)) return compiledFile;
+    }
+
+    return std::filesystem::path(relative);
+}
+
 // Root of the test corpus.  Returns "" if no path was provided - in
 // that case tests that call IGI1CONV_NEED() will GTEST_SKIP().
 inline const std::string& CorpusDir() {
@@ -65,6 +86,31 @@ inline const std::string& CorpusDir() {
 
 inline std::string Corpus(const std::string& rel) {
     return CorpusDir() + "\\" + rel;
+}
+
+// The live corpus also contains tool-generated metadata and scratch trees.
+// They may have game-like extensions (for example Ghidra's ~index.dat), but
+// they are not retail game resources and must not be selected by corpus tests.
+inline bool IsDerivedCorpusPath(const std::filesystem::path& path) {
+    for (const auto& component : path) {
+        std::string name = component.string();
+        std::transform(name.begin(), name.end(), name.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (name == ".mcp-live-project" ||
+            name == "igi.exe_ghidra" ||
+            name == "decompiled" ||
+            name == ".git" ||
+            name == "build" ||
+            name == "bin" ||
+            name == "scratch" ||
+            name == "input_files" ||
+            name == "converted_files" ||
+            name == "final_files" ||
+            name.ends_with(".rep")) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Temp directory scoped to a single test, auto-removed on destruction.
@@ -171,6 +217,7 @@ inline std::string FindCorpusFileByRegex(const std::string& pattern_str) {
 
     for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
         if (!entry.is_regular_file()) continue;
+        if (IsDerivedCorpusPath(entry.path())) continue;
         
         std::string filename = entry.path().filename().string();
         if (std::regex_search(filename, pattern)) {
@@ -229,6 +276,7 @@ inline std::string FindCorpusMefOfModelType(int wantedType,
     int inspected = 0;
     for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
         if (!entry.is_regular_file()) continue;
+        if (IsDerivedCorpusPath(entry.path())) continue;
         std::string filename = entry.path().filename().string();
         // Case-insensitive .mef extension check.
         if (filename.size() < 4) continue;
@@ -322,6 +370,7 @@ inline std::vector<std::string> FindRandomCorpusFiles(const std::string& pattern
     
     for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
         std::string path_str = entry.path().string();
+        if (IsDerivedCorpusPath(entry.path())) continue;
         if (path_str.find("build") != std::string::npos ||
             path_str.find("bin") != std::string::npos ||
             path_str.find("scratch") != std::string::npos ||

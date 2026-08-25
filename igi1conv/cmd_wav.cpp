@@ -48,6 +48,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -371,7 +373,12 @@ void print_header(const IlsfHeader& h)
     std::cout << "channels:            " << h.channels << "\n";
     std::cout << "frame_rate:          " << h.frame_rate << " Hz\n";
     std::cout << "frame_count:         " << h.frame_count << "\n";
-    std::printf ("duration:            %.3f s\n", seconds);
+    // Keep all command output on std::cout.  MCP captures the C++ stream
+    // buffers to keep stdout protocol-clean; a stdio printf would bypass that
+    // capture and corrupt the next JSON-RPC response.
+    std::ostringstream duration;
+    duration << std::fixed << std::setprecision(3) << seconds;
+    std::cout << "duration:            " << duration.str() << " s\n";
     std::cout << "supported:           "
               << (is_supported_method(h.method) ? "yes" : "yes (4-bit IMA ADPCM)")
               << "\n";

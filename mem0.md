@@ -338,3 +338,69 @@ exit codes, recursive directory walker with mixed good/bad inputs, and
 **Description:** `MefExportObjHasRealUvs` and `MefExportVFlipMatchesModelType` used `IGI1CONV_NEED(f, "\\.mef$")` which could pick Type 3 lightmap models. Type 3 models have synthetic UVs spanning `-11..1` (before fix) and no real texture coordinates, causing the tests' expected UV range assertions to fail.
 
 **Resolution:** Both tests now use `FindCorpusMefOfModelType(1)` (for Type 1 skinned) and `FindCorpusMefOfModelType(0)` (for Type 0 rigid) to guarantee they test only models with real texture coordinates. Type 3 models are excluded entirely from these assertions.
+
+## Bug ID: MCP-QSC-Escaped-Closing-Quote (PR #19)
+**Description:** The game-facing MCP QSC editor accepted a quoted literal whose final quote was escaped, allowing an edit request to persist malformed QSC source while reporting success.
+
+**Resolution:** QSC literal validation now scans escaped characters and requires an unescaped closing quote at the end of the token. Added a regression test covering the malformed literal and preserving the original output on rejection.
+
+## Bug ID: MCP-Stdio-Unbounded-Frame (PR #19)
+**Description:** MCP stdio framing used `std::getline`, which could allocate an unbounded buffer before the configured 8 MiB message limit was checked.
+**Resolution:** Added bounded byte-by-byte framing that caps input at 8 MiB, discards only the rest of the oversized frame, returns a JSON-RPC parse error, and continues with the next request. Added a regression test proving the next frame is still handled.
+
+## Bug ID: MCP-Lightmap-Partial-Rewrite (PR #19)
+**Description:** Lightmap recalculation could write earlier `.olm` files before a later parse or write failure, leaving a partially updated game asset set.
+**Resolution:** Recalculation now parses and transforms every block first, writes temporary siblings, then commits through same-directory rename with backups and rollback. Rollback now verifies each restore, includes the currently staged file, and reports failure instead of claiming the original set was restored when a filesystem operation failed.
+
+## Bug ID: MCP-WorkingDirectory-Leak (PR #19)
+**Description:** A failed or exceptional game-facing MCP command that changed the process cwd could leave later commands executing from an unintended directory.
+**Resolution:** Added a scoped current-directory guard that validates the target, restores the original cwd on every exit path, explicitly restores after failed changes, and reports restoration failure as a command failure.
+
+## Bug ID: MCP-QSC-Block-Comment-Parsing (PR #19)
+**Description:** QSC object and lightmap scanners did not consistently treat block comments as trivia, so commented `Task_New` text or comment punctuation could create false objects, break call nesting, or corrupt extracted positions and names.
+**Resolution:** Centralized comment/string-aware scanning across tokenization, call-span detection, object discovery, lightmap binding, direct-argument extraction, and MCP QSC editor call discovery. Added regressions for fake commented calls, inline comments, comment-bearing literals, and comments between `Task_New` and its opening parenthesis.
+
+## Bug ID: MCP-QSC-TaskNew-Trivia-Gap (PR #19)
+**Description:** The HumanSoldier parser skipped only whitespace after `Task_New`, so a valid call written as `Task_New /* annotation */ (...)` was silently omitted even though the shared trivia scanner already understood block comments.
+**Resolution:** Reused `skipTrivia()` before the opening-parenthesis check and added a regression test asserting that the commented call is parsed with its object name and model ID intact.
+
+## Bug ID: MCP-Test-Live-Cwd (2026-08-25)
+**Description:** Two structural MEF/GUI contract tests assumed the test process current directory was the repository root. Deploying the MCP test executable under `D:\IGI1\mcp-tests` therefore reported missing `mef_exporter.cpp` and `gui_main.cpp` even though the source contract was valid.
+
+**Resolution:** Recorded the configured checkout root as `IGI1CONV_SOURCE_DIR`, added a shared `SourceTreeFile()` resolver, and changed both structural tests to use it. The deployed suite now runs from `D:\IGI1` with 156 passed, 2 expected skips, and 0 failures.
+
+## Bug ID: MCP-Review-Coverage-Gates (2026-08-25)
+**Description:** The MCP hardening review found that standalone Qt deployment was only warned about, the live matrix was not registered with CTest, the plan still described authenticated remote HTTP while the implementation intentionally rejects plaintext remote binds, and the smoke harness did not verify independent or unknown HTTP sessions.
+
+**Resolution:** Windows configuration now requires `windeployqt` by default (with an explicit opt-out for PATH-managed Qt), CTest registers the live matrix when `IGI1CONV_GAME_PATH` is configured, the plan documents loopback-only plain HTTP plus HTTPS termination for remote access, and the smoke harness verifies distinct session IDs and rejects unknown sessions. The deployed matrix remains 100% with input integrity true.
+
+## Bug ID: MCP-Review-Haseeb-Security-Validation (2026-08-25)
+**Description:** The follow-up MCP review identified timing-sensitive token comparison, missing Host validation, serial slowloris handling, command-line token exposure, unsafe lightmap argument parsing, incomplete input/output collision coverage, non-atomic OLM/RES writes, QSC selector ambiguity for unparseable IDs, empty model-id acceptance, missing in-process HTTP coverage, and release-documentation contradictions.
+
+**Resolution:** Added digest-based constant-time token checks with bounded per-peer failure backoff, exact configured Host validation, bounded concurrent Qt HTTP workers, `IGI1CONV_MCP_TOKEN` environment support, strict lightmap option/value/range validation, declarative per-operation input metadata plus directory containment checks, atomic temporary-file replacement with close/read error handling for OLM/RES outputs, parsed-task-id tracking and strict QSC summary errors, explicit empty `model_id` rejection, in-process HTTP security tests, and aligned the changelog/README/format documentation with the shipped MCP surface.
+
+## Bug ID: MCP-HTTP-Oversized-Body-Status (2026-08-25)
+**Description:** The HTTP transport rejected a request whose declared body exceeded the 8 MiB MCP limit, but returned the generic `400 Bad Request` status and the test did not isolate the declared-length guard from a truncated-body condition.
+
+**Resolution:** Propagated the request error status from bounded HTTP parsing, returned `413 Payload Too Large` with an explicit size-limit message, and changed the regression to send an oversized declared `Content-Length` without allocating or transmitting an 8 MiB body. Added the same assertion to the deployed real-process smoke test.
+
+## Bug ID: MCP-Live-Test-Artifact-Volume (2026-08-25)
+**Description:** The live CLI/MCP matrix and smoke harness wrote generated files through the system temporary directory. On the test machine, that volume had no usable space, causing false output-validation failures and preventing all live testing from remaining under `D:\IGI1`.
+
+**Resolution:** Added explicit `-ArtifactRoot` parameters to both harnesses, resolved them to ordinary filesystem paths, and ran the final deployed tests with their artifacts rooted under `D:\IGI1\tests_temp`. The matrix now records per-operation results and independently verifies that all 58 operations returned by `tools/list` are covered.
+
+## Bug ID: MCP-Review-Exporter-Output-Collision (2026-08-25)
+**Description:** The MCP collision guard skipped commands marked as non-game-writing, allowing read-style exporters such as `tex.to-png` to overwrite their input when an explicit or implicit output resolved to the same path.
+**Resolution:** Applied collision checks to every MCP output-producing operation, added implicit output derivation for exporter and info commands, and added regressions for explicit and default output collisions.
+
+## Bug ID: MCP-Review-Http-Session-Retention (2026-08-25)
+**Description:** HTTP session identifiers were retained indefinitely, allowing repeated initialization to grow the in-memory session map without a bound.
+**Resolution:** Added idle expiry, a configurable maximum session count with oldest-entry eviction, last-use refresh, and a regression that verifies the oldest session is rejected after the bound is exceeded.
+
+## Bug ID: MCP-Review-Content-Length-Overflow (2026-08-25)
+**Description:** HTTP `Content-Length` parsing used a 32-bit integer conversion, so values above `INT_MAX` were treated as malformed `400 Bad Request` instead of oversized `413 Payload Too Large` requests.
+**Resolution:** Added bounded decimal parsing that distinguishes malformed values from oversized values regardless of integer width, with an overflow regression.
+
+## Bug ID: MCP-Review-Directory-Output-Collision (2026-08-25)
+**Description:** A directory-producing MCP command could receive an output directory containing its input file, such as `iff.decompile source.iff .` or `res.unpack archive.res .`; checking only existing input directories missed this file-under-output-directory collision.
+**Resolution:** Changed the collision guard to reject normalized path overlap in either direction and added regressions for IFF decompile and RES unpack directory outputs before execution.

@@ -1,9 +1,19 @@
 #include "pch.h"
 #include "cmd_olm.h"
 #include "../../third_party/tinygltf/stb_image_write.h"
+#include "../../third_party/tinygltf/stb_image.h"
 #include <filesystem>
 #include <fstream>
+#include <chrono>
 #include <vector>
+#include <cstring>
+#include <limits>
+#include <new>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -13,9 +23,14 @@ static void print_olm_help()
         "Usage: igi1conv olm <subcommand> [options]\n"
         "\n"
         "Subcommands:\n"
-        "  info   <input.olm>\n"
-        "  to-png <input.olm> [-o <out.png>]\n"
-        "  to-tga <input.olm> [-o <out.tga>]\n"
+        "  info     <input.olm>\n"
+        "  to-png   <input.olm> [-o <out.png>]\n"
+        "  to-tga   <input.olm> [-o <out.tga>]\n"
+        "  from-png <input.png> -o <out.olm> [--template <ref.olm>]\n"
+        "           Build an .olm from a PNG. Dimensions come from the PNG;\n"
+        "           --template copies the runtime header fields (uv scale,\n"
+        "           version, date) from an existing .olm so the rebuilt file\n"
+        "           matches the original's metadata.\n"
         "\n"
         "Exit codes: 0=success 1=bad args 2=file not found 3=parse error 4=write error\n";
 }
@@ -45,10 +60,40 @@ OLMFile ParseOlm(const std::string& path) {
         return olm;
     }
 
-    uint32_t numPixels = olm.layer.pixel_width * olm.layer.pixel_height;
-    olm.pixels.resize(numPixels);
-    file.read(reinterpret_cast<char*>(olm.pixels.data()), numPixels * sizeof(OlmPixel));
-    if (file.gcount() != numPixels * sizeof(OlmPixel)) {
+    if (olm.layer.pixel_width == 0 || olm.layer.pixel_height == 0) {
+        olm.error = "Invalid zero-sized lightmap";
+        return olm;
+    }
+
+    const uint64_t numPixels = static_cast<uint64_t>(olm.layer.pixel_width)
+        * static_cast<uint64_t>(olm.layer.pixel_height);
+    const uint64_t pixelBytes = numPixels * sizeof(OlmPixel);
+    constexpr uint64_t kMaxPixelBytes = 256ull * 1024ull * 1024ull;
+    if (pixelBytes > kMaxPixelBytes
+        || numPixels > std::numeric_limits<size_t>::max()
+        || pixelBytes > static_cast<uint64_t>(std::numeric_limits<std::streamsize>::max())) {
+        olm.error = "Lightmap pixel payload is too large";
+        return olm;
+    }
+
+    const std::streampos payloadStart = file.tellg();
+    std::error_code fileSizeError;
+    const uintmax_t fileSize = fs::file_size(path, fileSizeError);
+    if (payloadStart < 0 || fileSizeError
+        || static_cast<uintmax_t>(payloadStart) > fileSize
+        || pixelBytes > fileSize - static_cast<uintmax_t>(payloadStart)) {
+        olm.error = "Truncated lightmap pixel data";
+        return olm;
+    }
+
+    try {
+        olm.pixels.resize(static_cast<size_t>(numPixels));
+    } catch (const std::bad_alloc&) {
+        olm.error = "Unable to allocate lightmap pixel data";
+        return olm;
+    }
+    file.read(reinterpret_cast<char*>(olm.pixels.data()), static_cast<std::streamsize>(pixelBytes));
+    if (file.gcount() != static_cast<std::streamsize>(pixelBytes)) {
         olm.error = "Failed to read pixel data";
         return olm;
     }
@@ -89,6 +134,155 @@ static void SwapChannels(std::vector<OlmPixel>& pixels) {
     for (auto& p : pixels) {
         std::swap(p.r, p.b);
     }
+}
+
+bool WriteOlm(const std::string& path, const OLMFile& olm, std::string& err) {
+    if (olm.layer.pixel_width == 0 || olm.layer.pixel_height == 0) {
+        err = "refusing to write zero-sized OLM";
+        return false;
+    }
+    const size_t expected = static_cast<size_t>(olm.layer.pixel_width) * olm.layer.pixel_height;
+    if (olm.pixels.size() != expected) {
+        err = "pixel count " + std::to_string(olm.pixels.size()) +
+              " does not match " + std::to_string(olm.layer.pixel_width) + "x" +
+              std::to_string(olm.layer.pixel_height) + " (" + std::to_string(expected) + ")";
+        return false;
+    }
+    const fs::path target(path);
+    const fs::path temporary = target.string() + ".tmp-"
+        + std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    std::ofstream f(temporary, std::ios::binary | std::ios::trunc);
+    if (!f.is_open()) { err = "cannot open temporary output for writing: " + temporary.string(); return false; }
+
+    f.write(reinterpret_cast<const char*>(&olm.header), sizeof(OlmMainHeader));
+    f.write(reinterpret_cast<const char*>(&olm.layer), sizeof(OlmLayerDescriptor));
+    f.write(reinterpret_cast<const char*>(olm.pixels.data()),
+            static_cast<std::streamsize>(olm.pixels.size() * sizeof(OlmPixel)));
+    f.flush();
+    if (!f.good()) {
+        err = "write error on: " + temporary.string();
+        f.close();
+        std::error_code ignored;
+        fs::remove(temporary, ignored);
+        return false;
+    }
+    f.close();
+    if (f.fail()) {
+        err = "close/flush error on: " + temporary.string();
+        std::error_code ignored;
+        fs::remove(temporary, ignored);
+        return false;
+    }
+
+    bool replaced = false;
+#ifdef _WIN32
+    replaced = MoveFileExW(temporary.wstring().c_str(), target.wstring().c_str(),
+                           MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    std::error_code renameError;
+    fs::rename(temporary, target, renameError);
+    replaced = !renameError;
+#endif
+    if (!replaced) {
+        err = "cannot replace output atomically: " + path;
+        std::error_code ignored;
+        fs::remove(temporary, ignored);
+        return false;
+    }
+    return true;
+}
+
+OLMFile BuildOlmFromRGBA(const uint8_t* rgba, uint16_t width, uint16_t height,
+                         const OLMFile* templateOlm) {
+    OLMFile olm;
+    if (templateOlm && templateOlm->valid) {
+        // Inherit the original runtime header/layer verbatim so a rebuilt file
+        // keeps the same uv scale, version, date, runtime pointers AND the
+        // grid/block fields (header.width/height) which are NOT the pixel
+        // resolution. Only the layer pixel dimensions track the actual image.
+        olm.header = templateOlm->header;
+        olm.layer  = templateOlm->layer;
+        olm.layer.pixel_width  = width;
+        olm.layer.pixel_height = height;
+    } else {
+        std::memset(&olm.header, 0, sizeof(olm.header));
+        std::memset(&olm.layer, 0, sizeof(olm.layer));
+        // Minimal valid IGI1 single-layer header (see Lightmap_docs.md §2.3-2.4).
+        olm.header.version1 = 0.12f;
+        olm.header.version2 = 0.10f;
+        olm.header.count1 = 1;
+        olm.header.layer_count = 1;
+        olm.header.width  = width;   // best-guess grid == pixel dims with no template
+        olm.header.height = height;
+        olm.header.format = 3; // RGBA
+        olm.header.uv_scale_u = 1.0f;
+        olm.header.uv_scale_v = 1.0f;
+        olm.layer.pixel_width  = width;
+        olm.layer.pixel_height = height;
+    }
+
+    const size_t count = static_cast<size_t>(width) * height;
+    olm.pixels.resize(count);
+    for (size_t i = 0; i < count; ++i) {
+        // Image order is R,G,B,A; OLM stores with R/B swapped (BGRA on export),
+        // so swap back here to land in native OLM channel order.
+        olm.pixels[i].r = rgba[i * 4 + 2];
+        olm.pixels[i].g = rgba[i * 4 + 1];
+        olm.pixels[i].b = rgba[i * 4 + 0];
+        olm.pixels[i].a = rgba[i * 4 + 3];
+    }
+    olm.valid = true;
+    return olm;
+}
+
+static int do_olm_from_png(const std::string& input, const std::string& outpath,
+                           const std::string& templatePath)
+{
+    if (!fs::exists(input)) {
+        std::cerr << "olm: file not found: " << input << "\n";
+        return 2;
+    }
+    if (outpath.empty()) {
+        std::cerr << "olm: from-png requires -o <out.olm>\n";
+        return 1;
+    }
+
+    int w = 0, h = 0, channels = 0;
+    unsigned char* pixels = stbi_load(input.c_str(), &w, &h, &channels, 4);
+    if (!pixels) {
+        std::cerr << "olm: failed to read PNG: " << input << " (" << stbi_failure_reason() << ")\n";
+        return 3;
+    }
+    if (w <= 0 || h <= 0
+        || w > static_cast<int>(std::numeric_limits<uint16_t>::max())
+        || h > static_cast<int>(std::numeric_limits<uint16_t>::max())) {
+        std::cerr << "olm: PNG dimensions must be between 1 and 65535 pixels: "
+                  << w << "x" << h << "\n";
+        stbi_image_free(pixels);
+        return 3;
+    }
+
+    OLMFile templateOlm;
+    if (!templatePath.empty()) {
+        templateOlm = ParseOlm(templatePath);
+        if (!templateOlm.valid) {
+            std::cerr << "olm: template parse failed: " << templateOlm.error << "\n";
+            stbi_image_free(pixels);
+            return 3;
+        }
+    }
+
+    OLMFile out = BuildOlmFromRGBA(pixels, static_cast<uint16_t>(w), static_cast<uint16_t>(h),
+                                   templateOlm.valid ? &templateOlm : nullptr);
+    stbi_image_free(pixels);
+
+    std::string err;
+    if (!WriteOlm(outpath, out, err)) {
+        std::cerr << "olm: write failed: " << err << "\n";
+        return 4;
+    }
+    std::cout << "olm: wrote " << outpath << " (" << w << "x" << h << ")\n";
+    return 0;
 }
 
 static int do_olm_convert(const std::string& input, std::string outpath, const std::string& format)
@@ -160,6 +354,23 @@ int cmd_olm(int argc, char** argv)
             }
         }
         return do_olm_convert(input, outpath, subcmd == "to-png" ? "png" : "tga");
+    }
+    else if (subcmd == "from-png")
+    {
+        if (argc < 3) { print_olm_help(); return 1; }
+        std::string input = argv[2];
+        std::string outpath = "";
+        std::string templatePath = "";
+        for (int i = 3; i < argc; ++i)
+        {
+            std::string arg = argv[i];
+            if (arg == "-o" && i + 1 < argc) {
+                outpath = argv[++i];
+            } else if (arg == "--template" && i + 1 < argc) {
+                templatePath = argv[++i];
+            }
+        }
+        return do_olm_from_png(input, outpath, templatePath);
     }
 
     std::cerr << "olm: unknown subcommand '" << subcmd << "'\n";

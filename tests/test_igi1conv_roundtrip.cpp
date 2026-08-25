@@ -45,6 +45,27 @@ TEST_F(IGI1ConvTest, RoundtripQvmQscQvm) {
     EXPECT_TRUE(NonEmptyFile(qvm2));
 }
 
+TEST(Qsc, RejectsInPlaceCompileWithoutChangingSource) {
+    TempDir tmp;
+    const std::string input = tmp / "objects.qsc";
+    const std::string source =
+        "Task_New(701, \"HumanSoldier\", \"SmokeAlpha\", 10, 20, 30, 0, "
+        "\"soldier_model\", 1, 2, 3);\n";
+    {
+        std::ofstream file(input, std::ios::binary);
+        ASSERT_TRUE(file.is_open());
+        file << source;
+    }
+
+    std::string commandOutput;
+    EXPECT_NE(RunIGI1Conv("qsc compile " + Q(input) + " -o " + Q(input), &commandOutput), 0);
+    std::ifstream unchanged(input, std::ios::binary);
+    ASSERT_TRUE(unchanged.is_open());
+    const std::string after((std::istreambuf_iterator<char>(unchanged)),
+                            std::istreambuf_iterator<char>());
+    EXPECT_EQ(after, source);
+}
+
 // DAT -> MTP -> DAT: model/texture mappings survive both conversions.
 TEST_F(IGI1ConvTest, RoundtripDatMtpDat) {
     IGI1CONV_NEED(dat, "^(?!.*graph).*\\.dat$");
@@ -171,13 +192,13 @@ TEST_F(IGI1ConvTest, MefSidecarCompileRejectsVertexCountEdits) {
 TEST_F(IGI1ConvTest, VersionFlagReportsCurrentVersion) {
     std::string out;
     EXPECT_EQ(RunIGI1Conv("--version", &out), 0);
-    EXPECT_NE(out.find("1.10.0"), std::string::npos) << "got: " << out;
+    EXPECT_NE(out.find("1.11.0"), std::string::npos) << "got: " << out;
 }
 
 TEST_F(IGI1ConvTest, HelpReportsCurrentVersion) {
     std::string out;
     EXPECT_EQ(RunIGI1Conv("--help", &out), 0);
-    EXPECT_NE(out.find("v1.10.0"), std::string::npos) << "got: " << out;
+    EXPECT_NE(out.find("v1.11.0"), std::string::npos) << "got: " << out;
 }
 
 // ─── error handling ──────────────────────────────────────────────────────────
@@ -192,5 +213,8 @@ TEST_F(IGI1ConvTest, UnknownSubcommandReturnsNonZero) {
     EXPECT_NE(RunIGI1Conv("tex bogus somefile"), 0);
 }
 TEST_F(IGI1ConvTest, NoArgsReturnsNonZero) {
-    EXPECT_NE(RunIGI1Conv(""), 0);
+    // No arguments intentionally launches the GUI.  Bound this headless
+    // probe so the test does not wait the helper's full process timeout for
+    // an interactive window that cannot be exercised by the CLI suite.
+    EXPECT_NE(RunIGI1Conv("", nullptr, 1000), 0);
 }

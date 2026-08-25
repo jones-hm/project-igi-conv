@@ -3,6 +3,9 @@
 #include "res_parser.h"
 #include "res_compiler.h"
 #include <filesystem>
+#include <map>
+#include <iterator>
+#include <set>
 
 static void print_usage()
 {
@@ -14,6 +17,7 @@ static void print_usage()
         "  igi1conv res compile <file.qsc>\n"
         "  igi1conv res pack <dir> <out.res>\n"
         "  igi1conv res unpack <file.res> <dir>\n"
+        "  igi1conv res repack <orig.res> <dir> -o <out.res>\n"
         "  igi1conv res append <input.res> <file1> [file2...] -o <out.res> [--prefix LOCAL:textures/]\n";
 }
 
@@ -265,6 +269,103 @@ int cmd_res(int argc, char** argv)
             return 3;
         }
         std::cout << "Unpacked " << extracted << " file(s) to " << out_dir << "\n";
+        return 0;
+    }
+
+    // ── repack ────────────────────────────────────────────────────────────────
+    // Rebuild a .res preserving its EXACT original entry names, but swapping in
+    // updated file bytes from <dir> (matched by basename). Entries whose basename
+    // has no file in <dir> keep their original bytes. This is the safe way to
+    // write edited lightmaps back: `res pack`/`--prefix` derive entry names from
+    // the on-disk layout, which can't reproduce the game's nested
+    // "missions/location0/levelN/lightmaps/objNNN.olm" names from a flat
+    // lightmaps_unpacked/ folder. repack keeps the names verbatim.
+    if (sub == "repack")
+    {
+        if (argc < 5)
+        {
+            std::cerr << "res repack: usage: igi1conv res repack <orig.res> <dir> -o <out.res>\n"
+                         "  Rebuilds <orig.res> into <out.res>, replacing each entry whose\n"
+                         "  basename matches a file in <dir> with that file's bytes; all other\n"
+                         "  entries (and the original entry NAMES) are preserved verbatim.\n";
+            return 1;
+        }
+        std::string orig_res = argv[2];
+        std::string dir      = argv[3];
+        const char* out_c    = opt_val(argc, argv, "-o");
+        if (!out_c) { std::cerr << "res repack: -o <out.res> is required\n"; return 1; }
+        std::string out_res = out_c;
+
+        if (!std::filesystem::exists(orig_res)) {
+            std::cerr << "res repack: file not found: " << orig_res << "\n";
+            return 2;
+        }
+        if (!std::filesystem::is_directory(dir)) {
+            std::cerr << "res repack: not a directory: " << dir << "\n";
+            return 1;
+        }
+
+        // Index <dir> by filename so each original entry can be matched by basename.
+        std::map<std::string, std::filesystem::path> byName;
+        for (const auto& e : std::filesystem::directory_iterator(dir)) {
+            if (e.is_regular_file()) byName[e.path().filename().string()] = e.path();
+        }
+
+        std::vector<RESEntry> entries;
+        int replaced = 0, kept = 0;
+        std::set<std::string> matchedNames;
+        std::string replacementError;
+        std::string err;
+        bool ok = RES_ForEachEntry(orig_res,
+            [&](const std::string& name, const uint8_t* data, size_t size) {
+                if (!replacementError.empty()) return;
+                RESEntry entry;
+                entry.name = name; // preserve the EXACT original entry name
+                std::string base = std::filesystem::path(name).filename().string();
+                auto it = byName.find(base);
+                if (it != byName.end()) {
+                    std::ifstream ifs(it->second, std::ios::binary);
+                    if (!ifs) {
+                        replacementError = "cannot read replacement file: " + it->second.string();
+                        return;
+                    }
+                    entry.data.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+                    if (ifs.bad() || (ifs.fail() && !ifs.eof())) {
+                        replacementError = "replacement read failed: " + it->second.string();
+                        return;
+                    }
+                    matchedNames.insert(base);
+                    ++replaced;
+                } else {
+                    entry.data.assign(data, data + size);
+                    ++kept;
+                }
+                entries.push_back(std::move(entry));
+            }, err);
+        if (!ok) {
+            std::cerr << "res repack: failed to read " << orig_res << ": " << err << "\n";
+            return 3;
+        }
+        if (!replacementError.empty()) {
+            std::cerr << "res repack: " << replacementError << "\n";
+            return 3;
+        }
+
+        for (const auto& file : byName) {
+            if (matchedNames.find(file.first) == matchedNames.end()) {
+                std::cerr << "res repack: no archive entry matches " << file.first
+                          << "; refusing to write output\n";
+                return 3;
+            }
+        }
+
+        std::string werr;
+        if (!RES_WriteEntries(entries, out_res, werr)) {
+            std::cerr << "res repack: write failed: " << werr << "\n";
+            return 4;
+        }
+        std::cout << "res repack: wrote " << out_res << " (" << entries.size()
+                   << " entries, " << replaced << " replaced, " << kept << " kept)\n";
         return 0;
     }
 

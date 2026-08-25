@@ -75,6 +75,7 @@ cmake_test_discovery_*.json
 bin/
 
 scratch/
+.worktrees/
 *.exe
 5.15.2/
 build32/
@@ -82,5 +83,6 @@ build32/
 
 # Manual test artifacts
 tests_temp/
+CoverageReport-*/
 test_tone.wav
 *.wav

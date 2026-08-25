@@ -19,7 +19,10 @@ An interactive workspace designed for visual inspection, navigation, and quick a
 > To use **Apply Textures** on 3D models in the GUI, you must first select the active level folder from the **Settings** menu to resolve the correct texture mappings.
 
 > [!NOTE]
-> **Latest: v1.9.4 (June 2026) — Animation mode with skeletal skinning**:
+> **Latest: v1.11.0-rc.3 (August 2026) — Game-facing MCP release candidate**:
+> - **Follow-up hardening**: every MCP output-producing operation rejects an input/output collision, including an input file contained by an output directory; HTTP sessions use bounded retention with expiry, and oversized `Content-Length` values are classified as `413 Payload Too Large` even when they exceed 32-bit integer range.
+> - **Windows release bundle**: the downloadable x64 ZIP includes the Qt runtime and `vc_redist.x64.exe`; install the redistributable when the host does not already provide the MSVC runtime.
+> - **Validation scope**: the deployed live matrix covers all 58 operations registered by `tools/list` (58/58, 100% operation coverage), plus four CLI-only cases; this is operation coverage, not source-code line coverage.
 > - **Animation mode (Mode 6)**: New GUI mode that plays IFF bone animations on textured 3D MEF models. Toggle via **Settings > Animation**. Includes a Model dropdown, Animations listbox, Play button, Loop checkbox, and a configurable **FPS input textbox (1–120)**.
 > - **Skeletal skinning**: The textured 3D MEF mesh is deformed each frame using the IFF bone transforms — you see the actual animated character, not skeleton dots. Press `P` to toggle rest-pose skinning for debugging; press `B` to toggle the bone skeleton overlay (now depth-test disabled so it renders on top of the model at the correct scale).
 > - **Auto-setup**: Selecting a level from **Settings > Level** auto-detects `objects.qsc`, the `common/ANIMS` folder, and the level `models/` folder, so Animation mode is one click away.
@@ -129,6 +132,138 @@ igi1conv tex to-png textures/arrow1_1.spr -o out/arrow1_1.png --resize 32 32
 
 # Convert your edited PNG back to the game's TEX format
 igi1conv tex to-tga my_edits/FLARE00.png -o textures/FLARE00.TEX
+```
+
+## MCP server — game effects only
+
+`igi1conv` includes a Model Context Protocol server for automation against the
+same supported game-data operations as the CLI. It exposes conversions,
+inspection, validation, packing, lightmap work, and QSC task edits that affect
+files consumed by Project IGI. It does not expose GUI preferences, themes,
+cache paths, viewer/camera state, animation playback controls, layout, or any
+other editor-only state.
+
+Start the default newline-delimited stdio transport:
+
+```bash
+igi1conv mcp --transport stdio
+```
+
+Or start Streamable HTTP on localhost:
+
+```bash
+igi1conv mcp --transport http --host 127.0.0.1 --port 8765
+```
+
+HTTP validates `Origin` and serves plain HTTP on loopback only. Non-loopback
+binds are refused; use an HTTPS reverse proxy in front of a loopback listener
+for remote access. Use `--origin` to provide an explicit Origin allowlist.
+Browser clients can send an unauthenticated `OPTIONS` preflight; allowed
+Origins receive only the documented POST/OPTIONS and MCP/auth/session header
+permissions. The MCP endpoint is `/mcp` by default.
+
+The server advertises two game-facing tools: `igi_game_command` (all entries
+discovered from `tools/list`, such as `tex.info`, `mef.compile`, `res.repack`,
+and `qsc.compile`) and `igi_game_object_edit`. The latter
+can select a QSC `Task_New` by task id, class, or object name and update game
+position, rotation/gamma, model id, team, bone hierarchy, stand animation, or
+an arbitrary validated direct argument for task-specific enemy, weapon, AI,
+and trigger data. Named placement fields are restricted to the known
+`HumanSoldier` layout; other task classes use explicit indexed updates. MCP
+file writes require distinct input/output paths. Stdio frames, HTTP request
+deadlines, and command output capture are bounded; the MCP lifecycle is
+session-scoped; and inherently in-place CLI operations are not exposed through
+MCP. OLM creation rejects PNG dimensions that cannot be represented by the
+game format, and `res repack` refuses unmatched directory files before writing
+an archive. HTTP sessions expire and are retained in a bounded cache. Every
+MCP output-producing path, including implicit/default exporter outputs, rejects
+an output path that resolves to an input path.
+
+### MCP examples
+
+For stdio, send one JSON-RPC object per line. Initialize first, then discover
+the tools and call a registered operation. The server prints only JSON-RPC
+responses on stdout, so it can be connected directly to an MCP client:
+
+```text
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"igi-example","version":"1.0"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"igi_game_command","arguments":{"command":"qsc.list-objects","args":["missions/location0/level1/objects.qsc","--json"],"working_directory":"D:/IGI1"}}}
+```
+
+The generic command tool uses the same operation names returned by
+`tools/list`. For example, `tex.info` reads a texture without changing it:
+
+```json
+{
+  "name": "igi_game_command",
+  "arguments": {
+    "command": "tex.info",
+    "args": ["missions/location0/level1/textures/FLARE00.TEX"],
+    "working_directory": "D:/IGI1"
+  }
+}
+```
+
+To edit a QSC placement, always use a different output path. Selectors can be
+combined, and named placement fields use the known `HumanSoldier` layout:
+
+```json
+{
+  "name": "igi_game_object_edit",
+  "arguments": {
+    "input_file": "missions/location0/level1/objects.qsc",
+    "output_file": "D:/IGI1/tests_temp/objects-edited.qsc",
+    "selector": {"class_name": "HumanSoldier", "object_name": "Guard01"},
+    "position": [125.0, 42.0, 900.0],
+    "rotation": 1.57,
+    "model_id": "013_01_1",
+    "team": 2
+  }
+}
+```
+
+For Streamable HTTP, retain the `Mcp-Session-Id` returned by `initialize` and
+send it on every subsequent request. A minimal PowerShell session looks like:
+
+```powershell
+$body = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"igi-http-example","version":"1.0"}}}'
+$init = Invoke-WebRequest http://127.0.0.1:8765/mcp -Method Post `
+  -Headers @{ Accept = 'application/json, text/event-stream' } `
+  -ContentType 'application/json' -Body $body
+$session = $init.Headers['Mcp-Session-Id']
+$call = '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"igi_game_command","arguments":{"command":"tex.info","args":["missions/location0/level1/textures/FLARE00.TEX"]}}}'
+Invoke-RestMethod http://127.0.0.1:8765/mcp -Method Post `
+  -Headers @{ Accept = 'application/json, text/event-stream'; 'Mcp-Session-Id' = $session } `
+  -ContentType 'application/json' -Body $call
+```
+
+For a protected loopback listener, set the token in the environment rather
+than placing it in a shared command line or source file:
+
+```powershell
+$env:IGI1CONV_MCP_TOKEN = 'use-a-local-secret'
+igi1conv mcp --transport http --host 127.0.0.1 --port 8765
+```
+
+Send `Authorization: Bearer use-a-local-secret` with the HTTP requests. HTTP
+request bodies are bounded; an oversized body is rejected with `413` before
+dispatch. Successful tool results preserve `exit_code`, `stdout`, `stderr`,
+and `output_paths`; a nonzero converter exit code sets `isError`.
+
+For the complete MCP contract, operation registry, JSON examples, result
+format, and excluded editor-only surfaces, see [docs/mcp.md](docs/mcp.md).
+
+To assemble the Windows prerelease bundle from a deployed Release directory,
+run the tracked packaging script. It creates the binary-only ZIP, versioned
+standalone executables, and a checksum manifest after the final archive is
+written:
+
+```powershell
+pwsh -File ./tests/package_mcp_release.ps1 `
+  -SourceRoot D:\IGI1\mcp-tests `
+  -OutputRoot D:\IGI1\tests_temp\release-rc2 `
+  -Version 1.11.0-rc.3
 ```
 
 #### 2. Exporting 3D Meshes (`.mef`)
