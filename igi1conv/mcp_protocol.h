@@ -34,6 +34,11 @@ public:
     // receive a response on either stdio or HTTP.
     std::optional<QJsonObject> Handle(const QJsonObject& request) const;
 
+    // Transport-owned lifecycle state.  Stdio uses the convenience overload
+    // above; Streamable HTTP keeps one state value per MCP session.
+    std::optional<QJsonObject> Handle(const QJsonObject& request,
+                                      bool& initialized) const;
+
 private:
     McpCommandExecutor executor_;
     mutable bool initialized_ = false;

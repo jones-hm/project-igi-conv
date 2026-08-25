@@ -24,11 +24,14 @@ This document lists the supported file formats, their conversion targets, and wh
 
 ## MCP exposure
 
-The MCP server exposes the game-affecting CLI operations in this matrix,
-including read-only inspection needed to select or verify a game edit. It does
-not expose GUI settings, themes, cache paths, viewer/camera state, playback,
-layout, or other editor-only behavior. See [mcp.md](mcp.md) for the complete
-registry and tool schemas.
+The MCP server exposes the registered game-affecting CLI operations in this matrix,
+including read-only inspection needed to select or verify a game edit. The
+inherently in-place CLI operations `lightmap.recalc`, `mtp.repair`, and
+`mtp.sync` remain CLI-only until they have distinct-output modes; the
+editor-only `iff.export-gif` preview is also not exposed. MCP does not expose
+GUI settings, themes, cache paths, viewer/camera state, playback, layout, or
+other editor-only behavior. See [mcp.md](mcp.md) for the complete registry and
+tool schemas.
 
 ---
 

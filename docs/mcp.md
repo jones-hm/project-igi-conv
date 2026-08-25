@@ -27,14 +27,19 @@ igi1conv mcp --transport http --host 127.0.0.1 --port 8765 --endpoint /mcp
 The endpoint accepts `POST` requests with `Content-Type: application/json` and
 an `Accept` header containing both `application/json` and `text/event-stream`.
 It returns JSON responses for request/response calls and mirrors the negotiated
-`MCP-Protocol-Version`. The default bind is loopback. Non-loopback binds
-require an explicit token:
+`MCP-Protocol-Version`. The default bind is loopback. Non-loopback binds are
+refused. Put an HTTPS reverse proxy in front of a
+loopback listener when remote access is required.
+
+For a loopback listener that should require a bearer token, add
+`--auth-token <secret>`; never place a real token in source control or a
+shared command log.
 
 Browser clients may send an `OPTIONS` preflight to `/mcp`. An allowed Origin
 receives `204 No Content` with `Access-Control-Allow-Methods: POST, OPTIONS`
-and the MCP/auth request headers; rejected Origins receive no CORS allow
-headers. The preflight does not bypass the token requirement for the actual
-`POST` request.
+and the MCP/auth/session request headers; rejected Origins receive no CORS
+allow headers. The preflight does not bypass the token requirement for the
+actual `POST` request.
 
 Malformed JSON-RPC request objects receive an error response with `id: null`;
 valid notifications remain response-free. HTTP headers and bodies are bounded
@@ -43,19 +48,15 @@ by the server message limit before additional bytes are read.
 The current server protocol revision is `2025-11-25`; older supported client
 revisions are negotiated during `initialize`.
 
-```text
-igi1conv mcp --transport http --host 0.0.0.0 --port 8765 \
-  --auth-token <secret> --origin https://trusted.example
-```
-
-Never place a real token in source control or a shared command log. HTTP
-rejects an unrecognized `Origin`; clients without a browser Origin may omit
+HTTP rejects an unrecognized `Origin`; clients without a browser Origin may omit
 the header. `initialize` requires `protocolVersion`, `capabilities`, and
 `clientInfo`; an unknown client version negotiates the newest version this
-server supports. Clients must complete `initialize` before calling any other
-method; premature calls receive a JSON-RPC error and do not reach the game
-command dispatcher. The server does not execute a shell and does not accept an
-arbitrary executable path.
+server supports. The initialize response returns `Mcp-Session-Id`; every later
+HTTP request must send that header, so lifecycle state is isolated per client.
+Clients must complete `initialize` before calling any other method; premature
+calls receive a JSON-RPC error and do not reach the game command dispatcher.
+The server does not execute a shell and does not accept an arbitrary
+executable path.
 
 ## Protocol discovery
 
@@ -102,9 +103,9 @@ The registry currently covers these game-data families:
 - `fnt`: `info`, `export`
 - `graph`: `info`, `dump`, `export`, `md`, `table`
 - `iff`: `info`, `test`, `convert`, `create`, `decompile`, `rebuild`, `emit-qsc`
-- `lightmap`: `list`, `resolve`, `recalc`
+- `lightmap`: `list`, `resolve`
 - `mef`: `info`, `dump`, `export`, `to-text`, `compile`, `build-rigid`, `bundle`
-- `mtp`: `info`, `dump`, `repair`, `sync`, `to-dat`
+- `mtp`: `info`, `dump`, `to-dat`
 - `olm`: `info`, `to-png`, `to-tga`, `from-png`
 - `qsc`: `validate`, `compile`, `list-objects`, `edit-object`
 - `qvm`: `info`, `disasm`, `decompile`
@@ -155,7 +156,8 @@ argument semantics are not guessed.
 `working_directory` is optional when the input and output paths are relative;
 the server restores the process directory before returning the result, including
 failed command paths. Stdio input is bounded before allocation. QSC object and
-lightmap scans treat block comments as trivia, and `lightmap.recalc` stages all
+CLI lightmap scans treat block comments as trivia, and the CLI-only
+`lightmap.recalc` stages all
 updated `.olm` files before committing them as one transaction. Recalculation
 requires the number of resolved `.olm` files to match the MEF render-block
 count, and `res repack` refuses to write an archive when a supplied directory
@@ -194,9 +196,11 @@ string. Commas, semicolons, newlines, malformed quotes, duplicate indexes,
 and out-of-range indexes are rejected. Nested calls, trailing comments,
 escaped strings, and untouched source formatting are preserved. Output paths
 from generic commands include `-o`, `--output`, `--out`, and `-out` forms. Any
-generic write command whose output resolves to the input path is rejected; the
-CLI and MCP surfaces require a distinct output path so an automation mistake
-cannot overwrite the source asset in place.
+MCP-exposed write command whose output resolves to an input path is rejected,
+including positional and default-output forms, after resolving relative paths
+against `working_directory`. The inherently in-place CLI operations
+`lightmap.recalc`, `mtp.repair`, and `mtp.sync` are intentionally not exposed
+through MCP.
 
 The equivalent CLI commands are:
 
@@ -240,9 +244,13 @@ The repository includes focused GoogleTest coverage in
 smoke harness is:
 
 ```powershell
-pwsh -File ./tests/mcp_smoke.ps1 -QtBin 'D:/Qt/6.5.3/msvc2019_64/bin'
+pwsh -File ./tests/mcp_smoke.ps1
 ```
 
 It exercises stdio, a real QSC list/edit request, HTTP initialization,
-tool discovery and operation round-trip, notification `202`, method rejection,
-invalid-Origin rejection, and the remote authentication guard.
+tool discovery and operation round-trip, independent session identifiers and
+unknown-session rejection, notification `202`, method rejection, invalid-Origin
+rejection, token rejection/acceptance on loopback, and refusal of plaintext
+remote binding. Built Windows executables require `windeployqt` and are packaged
+with their Qt runtime by CMake. When `IGI1CONV_GAME_PATH` is configured, CTest
+also registers the live CLI/MCP matrix with its explicit 100% coverage gate.

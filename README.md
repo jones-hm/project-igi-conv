@@ -152,26 +152,27 @@ Or start Streamable HTTP on localhost:
 igi1conv mcp --transport http --host 127.0.0.1 --port 8765
 ```
 
-HTTP validates `Origin`. A non-loopback bind is refused unless an explicit
-`--auth-token` is supplied; use `--origin` to provide an explicit Origin
-allowlist. Browser clients can use the authenticated `OPTIONS` preflight;
-allowed Origins receive only the documented POST/OPTIONS and MCP/auth header
+HTTP validates `Origin` and serves plain HTTP on loopback only. Non-loopback
+binds are refused; use an HTTPS reverse proxy in front of a loopback listener
+for remote access. Use `--origin` to provide an explicit Origin allowlist.
+Browser clients can use the authenticated `OPTIONS` preflight; allowed
+Origins receive only the documented POST/OPTIONS and MCP/auth/session header
 permissions. The MCP endpoint is `/mcp` by default.
 
 The server advertises two game-facing tools: `igi_game_command` (all entries
 discovered from `tools/list`, such as `tex.info`, `mef.compile`, `res.repack`,
-`lightmap.recalc`, and `qsc.compile`) and `igi_game_object_edit`. The latter
+and `qsc.compile`) and `igi_game_object_edit`. The latter
 can select a QSC `Task_New` by task id, class, or object name and update game
 position, rotation/gamma, model id, team, bone hierarchy, stand animation, or
 an arbitrary validated direct argument for task-specific enemy, weapon, AI,
 and trigger data. Named placement fields are restricted to the known
-`HumanSoldier` layout; other task classes use explicit indexed updates. Every
-write requires an explicit output file. Stdio frames are size-bounded, QSC
-comment scanning is lexical, and `lightmap.recalc` stages all `.olm` outputs
-before committing them so one bad file does not intentionally produce a partial
-game-asset edit; it also rejects render-block/`.olm` count mismatches. OLM
-creation rejects PNG dimensions that cannot be represented by the game format,
-and `res repack` refuses unmatched directory files before writing an archive.
+`HumanSoldier` layout; other task classes use explicit indexed updates. MCP
+file writes require distinct input/output paths. Stdio frames, HTTP request
+deadlines, and command output capture are bounded; the MCP lifecycle is
+session-scoped; and inherently in-place CLI operations are not exposed through
+MCP. OLM creation rejects PNG dimensions that cannot be represented by the
+game format, and `res repack` refuses unmatched directory files before writing
+an archive.
 
 For the complete MCP contract, operation registry, JSON examples, result
 format, and excluded editor-only surfaces, see [docs/mcp.md](docs/mcp.md).

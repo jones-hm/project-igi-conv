@@ -538,7 +538,7 @@ TEST_F(IGI1ConvTest, MefExportVFlip_BinaryAndTextPathsAgree) {
 // at export time.
 TEST_F(IGI1ConvTest, MefExportVFlip_NoStrayOneMinusVLiterals) {
     namespace fs = std::filesystem;
-    fs::path p = std::filesystem::current_path() / "source/parsers/mef_exporter.cpp";
+    fs::path p = SourceTreeFile("source/parsers/mef_exporter.cpp");
     ASSERT_TRUE(fs::exists(p))
         << "could not locate mef_exporter.cpp at " << p.string();
 
@@ -584,7 +584,7 @@ TEST_F(IGI1ConvTest, MefExportVFlip_NoStrayOneMinusVLiterals) {
 // MefVToObjV.  The viewer code must read `v.uv.y` directly.
 TEST_F(IGI1ConvTest, MefViewerDoesNotFlipV) {
     namespace fs = std::filesystem;
-    fs::path p = std::filesystem::current_path() / "igi1conv/gui_main.cpp";
+    fs::path p = SourceTreeFile("igi1conv/gui_main.cpp");
     ASSERT_TRUE(fs::exists(p))
         << "could not locate gui_main.cpp at " << p.string();
 

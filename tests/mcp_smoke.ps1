@@ -41,6 +41,16 @@ function Json-Line($Object) {
     return ($Object | ConvertTo-Json -Compress -Depth 20)
 }
 
+function Http-Headers([string]$Origin, [string]$SessionId = "", [string]$Accept = "application/json, text/event-stream") {
+    $headers = @{
+        Origin = $Origin
+        Accept = $Accept
+        "MCP-Protocol-Version" = "2025-11-25"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($SessionId)) { $headers["Mcp-Session-Id"] = $SessionId }
+    return $headers
+}
+
 $fixture = Join-Path $root "tests\fixtures\mcp_game_objects.qsc"
 Assert-Condition (Test-Path -LiteralPath $fixture) "MCP fixture is missing: $fixture"
 $objectOutput = Join-Path ([System.IO.Path]::GetTempPath()) ("igi1conv_mcp_smoke_" + [guid]::NewGuid().ToString("N") + ".qsc")
@@ -138,17 +148,29 @@ try {
         Start-Sleep -Milliseconds 100
     }
     Assert-Condition $ready "HTTP MCP server did not start"
+    $preflightOrigin = "http://127.0.0.1:$HttpPort"
     $httpBody = Json-Line $initialize
-    $httpResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body $httpBody -UseBasicParsing
+    $httpResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers (Http-Headers $preflightOrigin) -Body $httpBody -UseBasicParsing
     $httpJson = $httpResponse.Content | ConvertFrom-Json
     Assert-Condition ($httpResponse.StatusCode -eq 200) "HTTP status was $($httpResponse.StatusCode)"
     Assert-Condition ($httpJson.result.serverInfo.name -eq "igi1conv") "HTTP MCP response was not initialize"
+    $sessionId = [string]$httpResponse.Headers["Mcp-Session-Id"]
+    Assert-Condition (-not [string]::IsNullOrWhiteSpace($sessionId)) "HTTP initialize did not return Mcp-Session-Id"
 
-    $preflightOrigin = "http://127.0.0.1:$HttpPort"
+    $httpToolsRequest = [ordered]@{ jsonrpc = "2.0"; id = 4; method = "tools/list" }
+    $secondInitResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers (Http-Headers $preflightOrigin) -Body $httpBody -UseBasicParsing
+    $secondSessionId = [string]$secondInitResponse.Headers["Mcp-Session-Id"]
+    Assert-Condition (-not [string]::IsNullOrWhiteSpace($secondSessionId)) "second HTTP initialize did not return Mcp-Session-Id"
+    Assert-Condition ($secondSessionId -ne $sessionId) "HTTP sessions were not independently identified"
+
+    $unknownSessionHeaders = Http-Headers $preflightOrigin "igi1conv-unknown-session"
+    $unknownSessionResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers $unknownSessionHeaders -Body (Json-Line $httpToolsRequest) -UseBasicParsing -SkipHttpErrorCheck
+    Assert-Condition ($unknownSessionResponse.StatusCode -eq 404) "unknown HTTP session was accepted"
+
     $preflightResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Options -Headers @{
         Origin = $preflightOrigin
         "Access-Control-Request-Method" = "POST"
-        "Access-Control-Request-Headers" = "content-type, accept, mcp-protocol-version"
+        "Access-Control-Request-Headers" = "content-type, accept, mcp-protocol-version, mcp-session-id"
     } -UseBasicParsing
     Assert-Condition ($preflightResponse.StatusCode -eq 204) "HTTP CORS preflight status was $($preflightResponse.StatusCode)"
     $allowOrigin = [string]$preflightResponse.Headers["Access-Control-Allow-Origin"]
@@ -158,7 +180,7 @@ try {
     Assert-Condition ($allowMethods.Contains("POST")) "HTTP CORS preflight omitted POST"
     Assert-Condition ($allowHeaders.Contains("MCP-Protocol-Version")) "HTTP CORS preflight omitted MCP headers"
 
-    $invalidRequestResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = $preflightOrigin; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body "{}" -UseBasicParsing
+    $invalidRequestResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers (Http-Headers $preflightOrigin $sessionId) -Body "{}" -UseBasicParsing
     $invalidRequestJson = $invalidRequestResponse.Content | ConvertFrom-Json
     Assert-Condition ($invalidRequestResponse.StatusCode -eq 200) "HTTP malformed JSON-RPC status was $($invalidRequestResponse.StatusCode)"
     Assert-Condition ($invalidRequestJson.error.code -eq -32600) "HTTP malformed id-less JSON-RPC request was not rejected"
@@ -172,45 +194,46 @@ try {
     $rejectedAllowOrigin = [string]$rejectedPreflightResponse.Headers["Access-Control-Allow-Origin"]
     Assert-Condition ([string]::IsNullOrEmpty($rejectedAllowOrigin)) "rejected CORS preflight returned Allow-Origin"
 
-    $httpToolsRequest = [ordered]@{ jsonrpc = "2.0"; id = 4; method = "tools/list" }
-    $httpToolsResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body (Json-Line $httpToolsRequest) -UseBasicParsing
+    $httpToolsResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers (Http-Headers $preflightOrigin $sessionId) -Body (Json-Line $httpToolsRequest) -UseBasicParsing
     $httpToolsJson = $httpToolsResponse.Content | ConvertFrom-Json
     Assert-Condition ($httpToolsResponse.StatusCode -eq 200) "HTTP tools/list status was $($httpToolsResponse.StatusCode)"
     $httpToolNames = @($httpToolsJson.result.tools | ForEach-Object { $_.name })
     Assert-Condition ($httpToolNames -contains "igi_game_command") "HTTP tools/list omitted igi_game_command"
     Assert-Condition ($httpToolNames -contains "igi_game_object_edit") "HTTP tools/list omitted igi_game_object_edit"
 
-    $httpCallResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body (Json-Line $call) -UseBasicParsing
+    $httpCallResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers (Http-Headers $preflightOrigin $sessionId) -Body (Json-Line $call) -UseBasicParsing
     $httpCallJson = $httpCallResponse.Content | ConvertFrom-Json
     Assert-Condition ($httpCallResponse.StatusCode -eq 200) "HTTP tools/call status was $($httpCallResponse.StatusCode)"
     Assert-Condition ($httpCallJson.result.structuredContent.exit_code -eq 0) "HTTP game operation failed"
     Assert-Condition ($httpCallJson.result.structuredContent.stdout.Contains("SmokeAlpha")) "HTTP game operation did not reach QSC listing"
 
-    $httpNotificationResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body (Json-Line $initialized) -UseBasicParsing
+    $httpNotificationResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers (Http-Headers $preflightOrigin $sessionId) -Body (Json-Line $initialized) -UseBasicParsing
     Assert-Condition ($httpNotificationResponse.StatusCode -eq 202) "HTTP notification status was $($httpNotificationResponse.StatusCode)"
 
     try {
-        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Get -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -UseBasicParsing | Out-Null
+        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Get -Headers (Http-Headers $preflightOrigin $sessionId) -UseBasicParsing | Out-Null
         throw "HTTP GET request was accepted"
     } catch {
         if ($_.Exception.Response.StatusCode.value__ -ne 405) { throw }
     }
 
     try {
-        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json"; "MCP-Protocol-Version" = "2025-11-25" } -Body $httpBody -UseBasicParsing | Out-Null
+        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers (Http-Headers $preflightOrigin $sessionId "application/json") -Body $httpBody -UseBasicParsing | Out-Null
         throw "HTTP request with incomplete Accept header was accepted"
     } catch {
         if ($_.Exception.Response.StatusCode.value__ -ne 400) { throw }
     }
     try {
-        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://127.0.0.1:$HttpPort"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2099-01-01" } -Body $httpBody -UseBasicParsing | Out-Null
+        $unsupportedHeaders = Http-Headers $preflightOrigin $sessionId
+        $unsupportedHeaders["MCP-Protocol-Version"] = "2099-01-01"
+        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers $unsupportedHeaders -Body $httpBody -UseBasicParsing | Out-Null
         throw "HTTP request with unsupported protocol version was accepted"
     } catch {
         if ($_.Exception.Response.StatusCode.value__ -ne 400) { throw }
     }
     $invalidOriginAccepted = $false
     try {
-        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers @{ Origin = "http://evil.example"; Accept = "application/json, text/event-stream"; "MCP-Protocol-Version" = "2025-11-25" } -Body $httpBody -UseBasicParsing | Out-Null
+        Invoke-WebRequest -Uri "http://127.0.0.1:$HttpPort/mcp" -Method Post -ContentType "application/json" -Headers (Http-Headers "http://evil.example" $sessionId) -Body $httpBody -UseBasicParsing | Out-Null
         $invalidOriginAccepted = $true
     } catch {
         if ($_.Exception.Response.StatusCode.value__ -ne 403) { throw }
@@ -222,12 +245,44 @@ finally {
     if ($http -and -not $http.HasExited) { $http.Kill(); $http.WaitForExit() }
 }
 
-# Remote binds must not start without authentication.
+# A configured token protects loopback HTTP requests as well.
+$authPort = $HttpPort + 2
+$authHttp = Start-Child @("mcp", "--transport", "http", "--host", "127.0.0.1", "--port", ([string]$authPort), "--auth-token", "smoke-secret")
+try {
+    $authReady = $false
+    for ($attempt = 0; $attempt -lt 30; ++$attempt) {
+        if ($authHttp.HasExited) { break }
+        $listeners = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
+        if ($listeners | Where-Object { $_.Port -eq $authPort }) {
+            $authReady = $true
+            break
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    Assert-Condition $authReady "token-protected HTTP server did not start"
+    $authOrigin = "http://127.0.0.1:$authPort"
+    $authNoToken = Invoke-WebRequest -Uri "http://127.0.0.1:$authPort/mcp" -Method Post -ContentType "application/json" -Headers (Http-Headers $authOrigin) -Body (Json-Line $initialize) -UseBasicParsing -SkipHttpErrorCheck
+    Assert-Condition ($authNoToken.StatusCode -eq 401) "missing HTTP token was accepted"
+    $authBadHeaders = Http-Headers $authOrigin
+    $authBadHeaders["Authorization"] = "Bearer wrong-token"
+    $authBadToken = Invoke-WebRequest -Uri "http://127.0.0.1:$authPort/mcp" -Method Post -ContentType "application/json" -Headers $authBadHeaders -Body (Json-Line $initialize) -UseBasicParsing -SkipHttpErrorCheck
+    Assert-Condition ($authBadToken.StatusCode -eq 401) "invalid HTTP token was accepted"
+    $authGoodHeaders = Http-Headers $authOrigin
+    $authGoodHeaders["Authorization"] = "Bearer smoke-secret"
+    $authGood = Invoke-WebRequest -Uri "http://127.0.0.1:$authPort/mcp" -Method Post -ContentType "application/json" -Headers $authGoodHeaders -Body (Json-Line $initialize) -UseBasicParsing
+    Assert-Condition ($authGood.StatusCode -eq 200) "valid HTTP token was rejected"
+    Write-Output "http-auth: PASS"
+}
+finally {
+    if ($authHttp -and -not $authHttp.HasExited) { $authHttp.Kill(); $authHttp.WaitForExit() }
+}
+
+# Plaintext remote binds are refused even when a bearer token is supplied.
 $remote = Start-Child @("mcp", "--transport", "http", "--host", "0.0.0.0", "--port", ([string]($HttpPort + 1)))
 $remoteErrorTask = $remote.StandardError.ReadToEndAsync()
 $remoteOutput = $remote.StandardOutput.ReadToEnd()
 $remoteError = $remoteErrorTask.GetAwaiter().GetResult()
 $remote.WaitForExit()
 Assert-Condition ($remote.ExitCode -eq 1) "unauthenticated remote HTTP bind was accepted"
-Assert-Condition ($remoteError.Contains("requires --auth-token")) "remote bind rejection did not explain the authentication requirement"
+Assert-Condition ($remoteError.Contains("requires HTTPS termination")) "remote bind rejection did not explain the HTTPS requirement"
 Write-Output "remote-auth-guard: PASS"

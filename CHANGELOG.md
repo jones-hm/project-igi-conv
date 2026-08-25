@@ -9,8 +9,8 @@ All notable changes to this project will be documented in this file.
   converter operations through JSON-RPC tools and the
   `igi1conv://game-capabilities` resource.
 - **Stdio and Streamable HTTP transports** — stdio is the default; HTTP binds
-  to `127.0.0.1:8765/mcp` by default, validates `Origin`, and requires an
-  authentication token for non-loopback binds.
+  to `127.0.0.1:8765/mcp` by default, validates `Origin`, uses per-client
+  sessions, and refuses plaintext non-loopback binds.
 - **QSC game-object editing** — list nested `Task_New` objects and write
   position, rotation/gamma, model id, team, bone hierarchy, stand animation,
   or validated indexed task arguments while preserving untouched source text.
@@ -61,6 +61,11 @@ All notable changes to this project will be documented in this file.
 - Rejected in-place output paths for generic write commands, rejected empty
   direct QSC arguments without shifting indexes, and rejected non-finite or
   trailing numeric lightmap rotation arguments.
+- Kept inherently in-place `lightmap.recalc`, `mtp.repair`, and `mtp.sync`
+  available to the CLI while excluding them from the MCP registry.
+- Added positional/default output collision checks, per-session HTTP lifecycle
+  state, bounded command output, finite request deadlines, and colocated Qt
+  runtime deployment for Windows builds.
 
 ## [1.11.0] - 2026-06-25
 
@@ -72,7 +77,10 @@ All notable changes to this project will be documented in this file.
   - `igi1conv lightmap recalc --model <id> --qsc <objects.qsc> --task-id <id> --mef <file.mef> --rot-orig X,Y,Z --rot-new X,Y,Z --sun-dir X,Y,Z [--sun-color R,G,B] [--ambient R,G,B]`
   - Each render block's lightmap is rescaled **per channel** by how much more/less its surface now faces the sun — `factor = L(N_new) / L(N_orig)` where `L(N) = ambient + sunColor·max(N·sunDir, 0)`. This preserves the original bake's shadow/ambient-occlusion detail while approximating the new orientation, instead of flattening it to pure direct light. Block normals are derived from triangle geometry (type-3 meshes store UV data in the per-vertex normal slot, so face normals are used). Factors are clamped (`<=4x`, denominator floored) so a previously-shadowed surface can't blow out to white.
   - An identity rotation (`rot-orig == rot-new`) is a guaranteed no-op (every factor is exactly 1.0), covered by a regression test.
-  - Overwrites the `.olm` files in `lightmaps_unpacked/` in place; repack `lightmaps.res` separately (`res repack`, below) for the game to pick them up.
+  - The CLI overwrites the `.olm` files in `lightmaps_unpacked/` in place; this
+    operation is intentionally not exposed through MCP. Repack
+    `lightmaps.res` separately (`res repack`, below) for the game to pick them
+    up.
 - **`res repack` command** — `igi1conv res repack <orig.res> <dir> -o <out.res>` rebuilds a `.res` preserving each original entry's EXACT name, swapping in updated bytes for any entry whose basename matches a file in `<dir>` (all others kept verbatim). This is the safe way to write edited lightmaps back into `lightmaps.res`: plain `res pack`/`--prefix` derive entry names from the on-disk folder layout and cannot reproduce the game's nested `missions/location0/levelN/lightmaps/objNNN.olm` names from a flat `lightmaps_unpacked/` dir. An edit-free repack reproduces the source `.res` byte-for-byte (regression-tested).
 
 ### Tests

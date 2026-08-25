@@ -347,3 +347,85 @@ TEST(McpProtocol, RejectsInPlaceGameCommandOutputBeforeExecution) {
                     .toObject().value("error").toString().contains("differ"));
     EXPECT_FALSE(executed);
 }
+
+TEST(McpProtocol, RejectsPositionalAndDefaultInPlaceGameOutputs) {
+    int executions = 0;
+    igi1conv::McpDispatcher dispatcher(
+        [&](const std::vector<std::string>&, const std::string&) {
+            ++executions;
+            return igi1conv::McpExecutionResult{0, "unexpected", ""};
+        });
+    ASSERT_TRUE(Initialize(dispatcher));
+
+    const QJsonObject positional{
+        {"command", "iff.rebuild"},
+        {"args", QJsonArray{"walk.iff", "walk.iff"}},
+    };
+    const auto positionalResponse = dispatcher.Handle(ToolCall(25, "igi_game_command", positional));
+    ASSERT_TRUE(positionalResponse.has_value());
+    EXPECT_TRUE(positionalResponse->value("result").toObject().value("isError").toBool());
+
+    const QJsonObject implicitOutput{
+        {"command", "mef.build-rigid"},
+        {"args", QJsonArray{"model.mef"}},
+    };
+    const auto implicitResponse = dispatcher.Handle(ToolCall(26, "igi_game_command", implicitOutput));
+    ASSERT_TRUE(implicitResponse.has_value());
+    EXPECT_TRUE(implicitResponse->value("result").toObject().value("isError").toBool());
+    EXPECT_EQ(executions, 0);
+}
+
+TEST(McpProtocol, ResolvesInPlaceChecksRelativeToWorkingDirectory) {
+    bool executed = false;
+    igi1conv::McpDispatcher dispatcher(
+        [&](const std::vector<std::string>&, const std::string&) {
+            executed = true;
+            return igi1conv::McpExecutionResult{0, "unexpected", ""};
+        });
+    ASSERT_TRUE(Initialize(dispatcher));
+
+    const QJsonObject arguments{
+        {"command", "qsc.compile"},
+        {"args", QJsonArray{"objects.qsc", "-o", "./objects.qsc"}},
+        {"working_directory", "D:/IGI1"},
+    };
+    const auto response = dispatcher.Handle(ToolCall(27, "igi_game_command", arguments));
+    ASSERT_TRUE(response.has_value());
+    EXPECT_TRUE(response->value("result").toObject().value("isError").toBool());
+    EXPECT_FALSE(executed);
+}
+
+TEST(McpProtocol, RejectsInvalidJsonRpcIdTypes) {
+    igi1conv::McpDispatcher dispatcher;
+    const QJsonObject request{
+        {"jsonrpc", "2.0"},
+        {"id", true},
+        {"method", "initialize"},
+        {"params", QJsonObject{
+            {"protocolVersion", "2025-11-25"},
+            {"capabilities", QJsonObject{}},
+            {"clientInfo", QJsonObject{{"name", "test"}, {"version", "1"}}},
+        }},
+    };
+    const auto response = dispatcher.Handle(request);
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(response->value("error").toObject().value("code").toInt(), -32600);
+    EXPECT_TRUE(response->value("id").isNull());
+}
+
+TEST(McpProtocol, NotificationInitializeDoesNotCompleteLifecycle) {
+    igi1conv::McpDispatcher dispatcher;
+    const QJsonObject notification{
+        {"jsonrpc", "2.0"},
+        {"method", "initialize"},
+        {"params", QJsonObject{
+            {"protocolVersion", "2025-11-25"},
+            {"capabilities", QJsonObject{}},
+            {"clientInfo", QJsonObject{{"name", "test"}, {"version", "1"}}},
+        }},
+    };
+    EXPECT_FALSE(dispatcher.Handle(notification).has_value());
+    const auto response = dispatcher.Handle(Request(28, "tools/list"));
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(response->value("error").toObject().value("code").toInt(), -32002);
+}

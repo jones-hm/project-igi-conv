@@ -1,12 +1,14 @@
 #include "mcp_transport.h"
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QMap>
+#include <QRandomGenerator>
 #include <QUrl>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -22,7 +24,8 @@ namespace igi1conv {
 namespace {
 
 constexpr std::size_t kMaxMessageBytes = 8 * 1024 * 1024;
-constexpr int kSocketTimeoutMs = 10'000;
+constexpr int kSocketTimeoutMs = 2'000;
+constexpr int kRequestDeadlineMs = 5'000;
 
 QJsonObject JsonRpcError(const QJsonValue& id, int code, const QString& message) {
     QJsonObject error;
@@ -145,7 +148,7 @@ QByteArray HttpProtocolVersion(const QMap<QByteArray, QByteArray>& headers,
 void WriteHttpResponse(QTcpSocket& socket, int status, const QByteArray& body,
                        const QByteArray& contentType, const QByteArray& origin = {},
                        const QByteArray& protocolVersion = "2025-11-25",
-                       bool preflight = false) {
+                       bool preflight = false, const QByteArray& sessionId = {}) {
     const QByteArray statusText = status == 200 ? "OK" : status == 202 ? "Accepted"
         : status == 204 ? "No Content"
         : status == 400 ? "Bad Request" : status == 401 ? "Unauthorized"
@@ -158,13 +161,14 @@ void WriteHttpResponse(QTcpSocket& socket, int status, const QByteArray& body,
     response += "Content-Length: " + QByteArray::number(body.size()) + "\r\n";
     response += "Content-Type: " + contentType + "\r\n";
     response += "MCP-Protocol-Version: " + protocolVersion + "\r\n";
+    if (!sessionId.isEmpty()) response += "Mcp-Session-Id: " + sessionId + "\r\n";
     if (!origin.isEmpty()) {
         response += "Access-Control-Allow-Origin: " + origin + "\r\n";
         response += "Vary: Origin\r\n";
     }
     if (preflight) {
         response += "Access-Control-Allow-Methods: POST, OPTIONS\r\n";
-        response += "Access-Control-Allow-Headers: Content-Type, Accept, MCP-Protocol-Version, Authorization, X-MCP-Auth-Token\r\n";
+        response += "Access-Control-Allow-Headers: Content-Type, Accept, MCP-Protocol-Version, MCP-Session-Id, Authorization, X-MCP-Auth-Token\r\n";
         response += "Access-Control-Max-Age: 600\r\n";
     }
     response += "\r\n";
@@ -180,6 +184,20 @@ QByteArray ErrorBody(const QString& message) {
 }
 
 bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error) {
+    QElapsedTimer deadline;
+    deadline.start();
+    const auto waitForRead = [&]() {
+        const int remaining = kRequestDeadlineMs - static_cast<int>(deadline.elapsed());
+        if (remaining <= 0) {
+            error = QStringLiteral("timed out waiting for HTTP request");
+            return false;
+        }
+        if (!socket.waitForReadyRead(std::min(kSocketTimeoutMs, remaining))) {
+            error = QStringLiteral("timed out waiting for HTTP request");
+            return false;
+        }
+        return true;
+    };
     auto readAvailable = [&](qint64 maximum, const QString& failure) {
         const qint64 available = socket.bytesAvailable();
         const qint64 amount = std::min(available, maximum);
@@ -201,10 +219,7 @@ bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error) {
             error = QStringLiteral("HTTP headers are too large");
             return false;
         }
-        if (!socket.waitForReadyRead(kSocketTimeoutMs)) {
-            error = QStringLiteral("timed out waiting for HTTP request");
-            return false;
-        }
+        if (!waitForRead()) return false;
         const qint64 remaining = static_cast<qint64>(kMaxMessageBytes) - request.size();
         if (!readAvailable(remaining, QStringLiteral("failed to read HTTP headers"))) return false;
     }
@@ -244,10 +259,7 @@ bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error) {
     }
     const int bodyStart = headerEnd + 4;
     while (request.size() - bodyStart < contentLength) {
-        if (!socket.waitForReadyRead(kSocketTimeoutMs)) {
-            error = QStringLiteral("timed out waiting for HTTP body");
-            return false;
-        }
+        if (!waitForRead()) return false;
         const qint64 remaining = contentLength - (request.size() - bodyStart);
         if (!readAvailable(remaining, QStringLiteral("failed to read HTTP body"))) return false;
     }
@@ -301,8 +313,9 @@ int RunMcpHttp(const McpDispatcher& dispatcher, const McpHttpOptions& options) {
         std::cerr << "MCP HTTP host must be an IP address or localhost\n";
         return 1;
     }
-    if (!IsLoopbackAddress(bindAddress) && options.authToken.empty()) {
-        std::cerr << "MCP HTTP remote binding requires --auth-token\n";
+    if (!IsLoopbackAddress(bindAddress)) {
+        std::cerr << "MCP HTTP remote binding requires HTTPS termination; "
+                     "igi1conv serves plain HTTP on loopback only\n";
         return 1;
     }
 
@@ -315,6 +328,7 @@ int RunMcpHttp(const McpDispatcher& dispatcher, const McpHttpOptions& options) {
               << ':' << server.serverPort() << options.endpoint << "\n";
 
     std::size_t handled = 0;
+    QMap<QByteArray, bool> sessions;
     while (options.maxRequests == 0 || handled < options.maxRequests) {
         if (!server.waitForNewConnection(-1)) {
             std::cerr << "MCP HTTP accept failed: " << server.errorString().toStdString() << "\n";
@@ -347,6 +361,7 @@ int RunMcpHttp(const McpDispatcher& dispatcher, const McpHttpOptions& options) {
             const bool originAllowed = IsOriginAllowed(origin, options, bindAddress);
             const QByteArray authorization = HeaderValue(headers, "authorization");
             const QByteArray tokenHeader = HeaderValue(headers, "x-mcp-auth-token");
+            const QByteArray sessionId = HeaderValue(headers, "mcp-session-id");
             const QByteArray expectedToken = QByteArray("Bearer ") + QByteArray::fromStdString(options.authToken);
             const bool authenticated = options.authToken.empty()
                 || authorization == expectedToken || tokenHeader == QByteArray::fromStdString(options.authToken);
@@ -395,19 +410,46 @@ int RunMcpHttp(const McpDispatcher& dispatcher, const McpHttpOptions& options) {
                                           ErrorBody(QStringLiteral("unsupported MCP-Protocol-Version")),
                                           "application/json", origin);
                     } else {
-                    const auto response = dispatcher.Handle(document.object());
-                    if (response.has_value()) {
-                        const QByteArray responseBody = QJsonDocument(*response).toJson(QJsonDocument::Compact);
-                        QByteArray responseProtocolVersion = protocolVersion;
-                        const QJsonObject result = response->value("result").toObject();
-                        if (result.value("protocolVersion").isString())
-                            responseProtocolVersion = result.value("protocolVersion").toString().toUtf8();
-                        WriteHttpResponse(*socket, 200, responseBody, "application/json", origin,
-                                          responseProtocolVersion);
-                    } else {
-                        WriteHttpResponse(*socket, 202, {}, "application/json", origin,
-                                          protocolVersion);
-                    }
+                        const QJsonObject requestObject = document.object();
+                        const bool isInitialize = requestObject.value("method").toString()
+                            == QStringLiteral("initialize");
+                        if (isInitialize && !sessionId.isEmpty()) {
+                            WriteHttpResponse(*socket, 400,
+                                              ErrorBody(QStringLiteral("initialize must not include Mcp-Session-Id")),
+                                              "application/json", origin);
+                        } else if (!isInitialize && sessionId.isEmpty()) {
+                            WriteHttpResponse(*socket, 400,
+                                              ErrorBody(QStringLiteral("Mcp-Session-Id is required after initialize")),
+                                              "application/json", origin);
+                        } else if (!isInitialize && !sessions.contains(sessionId)) {
+                            WriteHttpResponse(*socket, 404,
+                                              ErrorBody(QStringLiteral("unknown Mcp-Session-Id")),
+                                              "application/json", origin);
+                        } else {
+                            bool initialized = sessionId.isEmpty() ? false : sessions.value(sessionId);
+                            const auto response = dispatcher.Handle(requestObject, initialized);
+                            QByteArray responseSessionId = sessionId;
+                            if (isInitialize && response.has_value()
+                                && response->value("result").isObject()) {
+                                responseSessionId = QByteArray("igi1conv-")
+                                    + QByteArray::number(QRandomGenerator::global()->generate64(), 16);
+                                sessions.insert(responseSessionId, initialized);
+                            } else if (!sessionId.isEmpty()) {
+                                sessions[sessionId] = initialized;
+                            }
+                            if (response.has_value()) {
+                                const QByteArray responseBody = QJsonDocument(*response).toJson(QJsonDocument::Compact);
+                                QByteArray responseProtocolVersion = protocolVersion;
+                                const QJsonObject result = response->value("result").toObject();
+                                if (result.value("protocolVersion").isString())
+                                    responseProtocolVersion = result.value("protocolVersion").toString().toUtf8();
+                                WriteHttpResponse(*socket, 200, responseBody, "application/json", origin,
+                                                  responseProtocolVersion, false, responseSessionId);
+                            } else {
+                                WriteHttpResponse(*socket, 202, {}, "application/json", origin,
+                                                  protocolVersion, false, responseSessionId);
+                            }
+                        }
                     }
                 }
             }

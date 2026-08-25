@@ -16,7 +16,7 @@
 - Do not execute a shell or an arbitrary executable path from MCP input.
 - Use explicit file paths and preserve non-target source text during QSC editing.
 - stdio stdout must contain only valid newline-delimited JSON-RPC; diagnostics belong on stderr.
-- HTTP defaults to `127.0.0.1`; validate Origin and require an auth token for non-loopback binds.
+- HTTP defaults to `127.0.0.1`; plain HTTP is loopback-only. Remote access requires an HTTPS reverse proxy in front of the loopback listener.
 - Preserve converter exit codes and report nonzero commands as MCP tool errors.
 - Follow TDD: each production behavior gets a failing test before implementation, then a green focused test and a clean refactor.
 
@@ -159,7 +159,7 @@ git commit -m "feat: expose game operations through MCP tools"
 **Interfaces:**
 - `int RunMcpStdio(const McpDispatcher&)` reads one JSON-RPC message per line and writes exactly one response line for requests.
 - `int RunMcpHttp(const McpDispatcher&, const HttpOptions&)` serves `/mcp` using Qt Network.
-- `HttpOptions` defaults to host `127.0.0.1`, port `8765`, endpoint `/mcp`, and no remote bind without `--auth-token`.
+- `HttpOptions` defaults to host `127.0.0.1`, port `8765`, endpoint `/mcp`; non-loopback plain-HTTP binds are refused, and remote access uses HTTPS termination.
 - `igi1conv mcp --transport stdio|http [--host HOST] [--port PORT] [--auth-token TOKEN]` is the only server entry point.
 
 - [x] **Step 1: Write failing transport tests**
@@ -176,7 +176,7 @@ Read bounded lines, parse JSON, dispatch, serialize compact JSON, flush after ea
 
 - [x] **Step 4: Implement HTTP transport**
 
-Use `QTcpServer`/`QTcpSocket` on one endpoint. Parse bounded HTTP headers/body, enforce POST content type, validate Origin against loopback/configured origins, enforce the auth token when configured or required for non-loopback binds, and return JSON-RPC responses with MCP content types.
+Use `QTcpServer`/`QTcpSocket` on one endpoint. Parse bounded HTTP headers/body, enforce POST content type, validate Origin against loopback/configured origins, enforce the configured auth token, refuse non-loopback plain-HTTP binds, and return JSON-RPC responses with MCP content types.
 
 - [x] **Step 5: Run protocol-level smoke tests against a real process**
 

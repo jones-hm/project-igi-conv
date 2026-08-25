@@ -112,6 +112,36 @@ add_custom_command(TARGET igi1conv POST_BUILD
         $<TARGET_FILE_DIR:igi1conv>
 )
 
+# Keep Release/Debug binaries runnable when launched directly from the build
+# output (Explorer, CTest, or a copied test bundle).  Qt DLLs are not found
+# from the executable's link metadata, so relying on the caller's PATH makes
+# the otherwise valid test executable fail with 0xc0000135.
+if (WIN32)
+    option(IGI1CONV_REQUIRE_QT_DEPLOYMENT
+        "Fail configuration when a standalone Qt runtime cannot be deployed" ON)
+    find_program(IGI1CONV_WINDEPLOYQT
+        NAMES windeployqt windeployqt.exe
+        HINTS "${CMAKE_PREFIX_PATH}/bin" "${CMAKE_PREFIX_PATH}"
+    )
+    if (IGI1CONV_WINDEPLOYQT)
+        add_custom_command(TARGET igi1conv POST_BUILD
+            COMMAND "${IGI1CONV_WINDEPLOYQT}"
+                "$<IF:$<CONFIG:Debug>,--debug,--release>"
+                --no-translations
+                --no-system-d3d-compiler
+                "$<TARGET_FILE:igi1conv>"
+            COMMENT "Deploying Qt runtime beside igi1conv"
+            VERBATIM
+        )
+    elseif (IGI1CONV_REQUIRE_QT_DEPLOYMENT)
+        message(FATAL_ERROR
+            "windeployqt is required for standalone Windows binaries; "
+            "set IGI1CONV_REQUIRE_QT_DEPLOYMENT=OFF only when Qt is guaranteed on PATH")
+    else()
+        message(WARNING "windeployqt not found; built executables require Qt DLLs on PATH")
+    endif()
+endif()
+
 # ─── tests ───────────────────────────────────────────────────────────────────
 option(IGI1CONV_BUILD_TESTS "Build igi1conv test suite" ON)
 
@@ -126,8 +156,15 @@ if (IGI1CONV_BUILD_TESTS)
     FetchContent_MakeAvailable(googletest)
     enable_testing()
 
-    file(GLOB IGI1CONV_TEST_SOURCES "tests/*.cpp")
+    file(GLOB IGI1CONV_TEST_SOURCES CONFIGURE_DEPENDS "tests/*.cpp")
     add_executable(igi1conv_tests ${IGI1CONV_TEST_SOURCES})
+
+    # Keep structural source-contract tests independent of the process
+    # working directory.  The test executable is also deployed beside a live
+    # game corpus for validation, so its cwd is not necessarily the checkout.
+    target_compile_definitions(igi1conv_tests PRIVATE
+        IGI1CONV_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    )
 
     add_dependencies(igi1conv_tests igi1conv)
 
@@ -174,4 +211,33 @@ if (IGI1CONV_BUILD_TESTS)
 
     include(GoogleTest)
     gtest_discover_tests(igi1conv_tests WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+
+    find_program(IGI1CONV_POWERSHELL
+        NAMES pwsh powershell
+    )
+    if (IGI1CONV_POWERSHELL)
+        add_test(NAME McpDocumentation
+            COMMAND "${IGI1CONV_POWERSHELL}" -NoProfile -File
+                    "${PROJECT_SOURCE_DIR}/tests/mcp_docs_check.ps1"
+        )
+        set_tests_properties(McpDocumentation PROPERTIES
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        )
+
+        set(IGI1CONV_GAME_PATH "$ENV{IGI_GAME_PATH}" CACHE PATH
+            "Optional game corpus path for the live MCP/CLI matrix")
+        if (IGI1CONV_GAME_PATH
+            AND EXISTS "${PROJECT_SOURCE_DIR}/tests/live_igi1_matrix.ps1")
+            add_test(NAME McpLiveIgi1Matrix
+                COMMAND "${IGI1CONV_POWERSHELL}" -NoProfile -File
+                        "${PROJECT_SOURCE_DIR}/tests/live_igi1_matrix.ps1"
+                        -GamePath "${IGI1CONV_GAME_PATH}"
+                        -Executable "$<TARGET_FILE:igi1conv>"
+            )
+            set_tests_properties(McpLiveIgi1Matrix PROPERTIES
+                WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+                TIMEOUT 900
+            )
+        endif()
+    endif()
 endif()

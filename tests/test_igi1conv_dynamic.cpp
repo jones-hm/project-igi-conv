@@ -136,7 +136,11 @@ TEST_F(IGI1ConvTest, DynamicRES) {
         std::cout << "  Testing RES round-trip: " << in_file << "\n";
         TempDir tmp;
         std::string filename = std::filesystem::path(in_file).filename().string();
-        std::string extracted_dir = tmp / ("RES_" + std::to_string(i) + "_" + filename + "_extracted");
+        // Keep the extracted directory name stable across rounds.  `res pack`
+        // derives the archive's LOCAL: prefix from that directory name, so
+        // using a different directory for round two changes every entry name
+        // and makes an otherwise stable archive look non-deterministic.
+        std::string extracted_dir = tmp / ("RES_" + std::to_string(i) + "_payload");
         std::string out_file = tmp / ("RES_" + std::to_string(i) + "_" + filename);
         
         // Round 1
@@ -149,11 +153,12 @@ TEST_F(IGI1ConvTest, DynamicRES) {
                 
                 if (in_hash != out_hash) {
                     // Round 2
-                    std::string extracted_dir2 = tmp / ("RES_" + std::to_string(i) + "_" + filename + "_rnd2_extracted");
                     std::string out_file2 = tmp / ("RES_" + std::to_string(i) + "_" + filename + "_rnd2.res");
-                    
-                    if (ExpectRun("res unpack " + Q(out_file) + " " + Q(extracted_dir2))) {
-                        if (ExpectRun("res pack " + Q(extracted_dir2) + " " + Q(out_file2))) {
+
+                    std::error_code ec;
+                    std::filesystem::remove_all(extracted_dir, ec);
+                    if (ExpectRun("res unpack " + Q(out_file) + " " + Q(extracted_dir))) {
+                        if (ExpectRun("res pack " + Q(extracted_dir) + " " + Q(out_file2))) {
                             std::string out_hash2 = GetFileSHA256(out_file2);
                             EXPECT_EQ(out_hash, out_hash2) << "RES round-trip hash mismatch on second round for: " << in_file;
                         }

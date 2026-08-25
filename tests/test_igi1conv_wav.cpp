@@ -178,6 +178,7 @@ TEST_F(IGI1ConvTest, WavInfoRaw) {
     EXPECT_NE(out.find("sound_pack_method:   0 (RAW)"),    std::string::npos);
     EXPECT_NE(out.find("channels:            1"),          std::string::npos);
     EXPECT_NE(out.find("frame_rate:          22050 Hz"),   std::string::npos);
+    EXPECT_NE(out.find("duration:            "),            std::string::npos);
     EXPECT_NE(out.find("supported:           yes"),        std::string::npos);
 }
 

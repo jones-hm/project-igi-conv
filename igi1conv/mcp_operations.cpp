@@ -33,7 +33,9 @@ const std::vector<GameOperation>& BuildOperations() {
             {"iff.rebuild", "Rebuild a game IFF animation", true, {"iff", "rebuild"}},
             {"iff.test", "Validate game skeletal animation data", false, {"iff", "test"}},
             {"lightmap.list", "List game lightmap bindings for placed models", false, {"lightmap", "list"}},
-            {"lightmap.recalc", "Recalculate game lightmaps after a placement rotation change", true, {"lightmap", "recalc"}},
+            // The CLI operation intentionally remains available, but it edits
+            // resolved .olm files in place and has no distinct-output mode.
+            // Do not expose that destructive form through MCP.
             {"lightmap.resolve", "Resolve game lightmap files for a placed model", false, {"lightmap", "resolve"}},
             {"mef.build-rigid", "Build a game rigid mesh from an attached model", true, {"mef", "build-rigid"}},
             {"mef.bundle", "Bundle a game mesh with its game textures", true, {"mef", "bundle"}},
@@ -44,8 +46,8 @@ const std::vector<GameOperation>& BuildOperations() {
             {"mef.to-text", "Convert a game mesh into editable text", false, {"mef", "to-text"}},
             {"mtp.dump", "Inspect game model/texture package mappings", false, {"mtp", "dump"}},
             {"mtp.info", "Inspect a game MTP package", false, {"mtp", "info"}},
-            {"mtp.repair", "Repair game MTP mapping counts", true, {"mtp", "repair"}},
-            {"mtp.sync", "Synchronize game MTP mappings with DAT data", true, {"mtp", "sync"}},
+            // mtp repair/sync also write their input file in place; they are
+            // covered by the CLI/live matrix, not the MCP registry.
             {"mtp.to-dat", "Compile a game MTP package into DAT mappings", true, {"mtp", "to-dat"}},
             {"olm.from-png", "Build a game OLM lightmap from edited image data", true, {"olm", "from-png"}},
             {"olm.info", "Inspect a game OLM lightmap", false, {"olm", "info"}},

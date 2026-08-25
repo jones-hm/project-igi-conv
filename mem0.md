@@ -363,3 +363,13 @@ exit codes, recursive directory walker with mixed good/bad inputs, and
 ## Bug ID: MCP-QSC-TaskNew-Trivia-Gap (PR #19)
 **Description:** The HumanSoldier parser skipped only whitespace after `Task_New`, so a valid call written as `Task_New /* annotation */ (...)` was silently omitted even though the shared trivia scanner already understood block comments.
 **Resolution:** Reused `skipTrivia()` before the opening-parenthesis check and added a regression test asserting that the commented call is parsed with its object name and model ID intact.
+
+## Bug ID: MCP-Test-Live-Cwd (2026-08-25)
+**Description:** Two structural MEF/GUI contract tests assumed the test process current directory was the repository root. Deploying the MCP test executable under `D:\IGI1\mcp-tests` therefore reported missing `mef_exporter.cpp` and `gui_main.cpp` even though the source contract was valid.
+
+**Resolution:** Recorded the configured checkout root as `IGI1CONV_SOURCE_DIR`, added a shared `SourceTreeFile()` resolver, and changed both structural tests to use it. The deployed suite now runs from `D:\IGI1` with 156 passed, 2 expected skips, and 0 failures.
+
+## Bug ID: MCP-Review-Coverage-Gates (2026-08-25)
+**Description:** The MCP hardening review found that standalone Qt deployment was only warned about, the live matrix was not registered with CTest, the plan still described authenticated remote HTTP while the implementation intentionally rejects plaintext remote binds, and the smoke harness did not verify independent or unknown HTTP sessions.
+
+**Resolution:** Windows configuration now requires `windeployqt` by default (with an explicit opt-out for PATH-managed Qt), CTest registers the live matrix when `IGI1CONV_GAME_PATH` is configured, the plan documents loopback-only plain HTTP plus HTTPS termination for remote access, and the smoke harness verifies distinct session IDs and rejects unknown sessions. The deployed matrix remains 100% with input integrity true.

@@ -28,6 +28,7 @@ namespace {
 
 constexpr const char* kProtocolVersion = "2025-11-25";
 constexpr const char* kCapabilitiesUri = "igi1conv://game-capabilities";
+constexpr std::size_t kMaxExecutionOutputBytes = 1024 * 1024;
 
 QString ToQString(const std::string& value) {
     return QString::fromUtf8(value.data(), static_cast<int>(value.size()));
@@ -207,9 +208,13 @@ std::vector<std::string> OutputPaths(const std::vector<std::string>& command) {
     return result;
 }
 
-std::string NormalizedPathForComparison(const std::string& value) {
+std::string NormalizedPathForComparison(const std::string& value,
+                                        const std::string& workingDirectory) {
     std::error_code error;
-    std::filesystem::path path = std::filesystem::absolute(value, error);
+    std::filesystem::path path(value);
+    if (path.is_relative() && !workingDirectory.empty())
+        path = std::filesystem::path(workingDirectory) / path;
+    path = std::filesystem::absolute(path, error);
     if (error) path = std::filesystem::path(value);
     path = path.lexically_normal();
     std::string normalized = path.generic_string();
@@ -222,43 +227,108 @@ std::string NormalizedPathForComparison(const std::string& value) {
     return normalized;
 }
 
-bool SamePath(const std::string& left, const std::string& right) {
+bool SamePath(const std::string& left, const std::string& right,
+              const std::string& workingDirectory) {
     if (left.empty() || right.empty()) return false;
+    const auto resolve = [&workingDirectory](const std::string& value) {
+        std::filesystem::path path(value);
+        if (path.is_relative() && !workingDirectory.empty())
+            path = std::filesystem::path(workingDirectory) / path;
+        return path;
+    };
+    const std::filesystem::path resolvedLeft = resolve(left);
+    const std::filesystem::path resolvedRight = resolve(right);
     std::error_code error;
-    if (std::filesystem::equivalent(std::filesystem::path(left),
-                                     std::filesystem::path(right), error))
+    if (std::filesystem::equivalent(resolvedLeft, resolvedRight, error))
         return true;
-    return NormalizedPathForComparison(left) == NormalizedPathForComparison(right);
+    return NormalizedPathForComparison(left, workingDirectory)
+        == NormalizedPathForComparison(right, workingDirectory);
 }
 
 bool RejectInPlaceOutput(const std::string& input, const std::string& output,
-                         QString& error) {
-    if (!SamePath(input, output)) return true;
+                         const std::string& workingDirectory, QString& error) {
+    if (!SamePath(input, output, workingDirectory)) return true;
     error = QStringLiteral("input and output paths must differ; in-place game writes are not supported");
     return false;
 }
 
-bool RejectInPlaceCommandOutput(const std::vector<std::string>& command, QString& error) {
-    if (command.size() < 3) return true;
-    for (const auto& output : OutputPaths(command)) {
-        if (!RejectInPlaceOutput(command[2], output, error)) return false;
+std::vector<std::string> InputPathsForOperation(const std::string& operationName,
+                                                const std::vector<std::string>& command) {
+    if (command.size() < 3) return {};
+    if (operationName == "iff.convert" || operationName == "iff.create"
+        || operationName == "iff.emit-qsc" || operationName == "iff.rebuild"
+        || operationName == "mef.build-rigid" || operationName == "res.pack"
+        || operationName == "res.unpack")
+        return {command[2]};
+    return {command[2]};
+}
+
+std::vector<std::string> OutputPathsForOperation(const std::string& operationName,
+                                                 const std::vector<std::string>& command) {
+    std::vector<std::string> outputs = OutputPaths(command);
+    if (!outputs.empty()) return outputs;
+
+    // These commands use a positional destination rather than -o.
+    if ((operationName == "iff.convert" || operationName == "iff.create"
+         || operationName == "iff.emit-qsc" || operationName == "iff.rebuild"
+         || operationName == "res.pack" || operationName == "res.unpack")
+        && command.size() >= 4)
+        return {command[3]};
+
+    // mef build-rigid historically defaults its destination to the input.
+    // Report that implicit destination so MCP rejects the unsafe form before
+    // the command can overwrite the source.
+    if (operationName == "mef.build-rigid" && command.size() >= 3)
+        return {command[2]};
+
+    // These CLI commands derive a sibling output when -o is omitted.  The
+    // derived path is still compared against the input for completeness.
+    if ((operationName == "dat.to-mtp" || operationName == "mtp.to-dat")
+        && command.size() >= 3) {
+        std::filesystem::path derived(command[2]);
+        derived.replace_extension(operationName == "dat.to-mtp" ? ".mtp" : ".dat");
+        return {derived.string()};
+    }
+    return {};
+}
+
+bool RejectInPlaceCommandOutput(const std::string& operationName,
+                                const std::vector<std::string>& command,
+                                const std::string& workingDirectory,
+                                bool writesGame, QString& error) {
+    if (!writesGame) return true;
+    const auto inputs = InputPathsForOperation(operationName, command);
+    const auto outputs = OutputPathsForOperation(operationName, command);
+    for (const auto& input : inputs) {
+        for (const auto& output : outputs) {
+            if (!RejectInPlaceOutput(input, output, workingDirectory, error)) return false;
+        }
     }
     return true;
+}
+
+std::string LimitExecutionOutput(const std::string& value) {
+    if (value.size() <= kMaxExecutionOutputBytes) return value;
+    std::string limited = value.substr(0, kMaxExecutionOutputBytes);
+    limited += "\n[output truncated at 1048576 bytes]";
+    return limited;
 }
 
 QJsonObject ExecutionToolResult(const McpExecutionResult& execution,
                                 const std::vector<std::string>& command) {
     QJsonObject structured;
     structured.insert("exit_code", execution.exitCode);
-    structured.insert("stdout", JsonString(execution.stdoutText));
-    structured.insert("stderr", JsonString(execution.stderrText));
+    const std::string stdoutText = LimitExecutionOutput(execution.stdoutText);
+    const std::string stderrText = LimitExecutionOutput(execution.stderrText);
+    structured.insert("stdout", JsonString(stdoutText));
+    structured.insert("stderr", JsonString(stderrText));
     QJsonArray outputPaths;
     for (const auto& path : OutputPaths(command)) outputPaths.append(JsonString(path));
     structured.insert("output_paths", outputPaths);
 
     QString summary = QStringLiteral("game command exit code %1").arg(execution.exitCode);
-    if (!execution.stdoutText.empty()) summary += QStringLiteral("\n") + JsonString(execution.stdoutText);
-    if (!execution.stderrText.empty()) summary += QStringLiteral("\n") + JsonString(execution.stderrText);
+    if (!stdoutText.empty()) summary += QStringLiteral("\n") + JsonString(stdoutText);
+    if (!stderrText.empty()) summary += QStringLiteral("\n") + JsonString(stderrText);
 
     QJsonObject result;
     QJsonArray content;
@@ -373,11 +443,11 @@ std::optional<QJsonObject> HandleGameCommand(const QJsonObject& arguments,
     std::string validationError;
     if (!IsAllowedGameCommand(command, validationError))
         return ResultResponse(id, ToolError(ToQString(validationError)));
-    if (!RejectInPlaceCommandOutput(command, error))
-        return ResultResponse(id, ToolError(error));
-
     std::string workingDirectory;
     if (!ReadString(arguments, "working_directory", workingDirectory, error, false))
+        return ResultResponse(id, ToolError(error));
+    if (!RejectInPlaceCommandOutput(operationName, command, workingDirectory,
+                                    operation->writesGame, error))
         return ResultResponse(id, ToolError(error));
     return ResultResponse(id, ExecutionToolResult(executor(command, workingDirectory), command));
 }
@@ -420,7 +490,10 @@ std::optional<QJsonObject> HandleGameObjectEdit(const QJsonObject& arguments,
     if (!ReadString(arguments, "input_file", input, error)
         || !ReadString(arguments, "output_file", output, error))
         return ResultResponse(id, ToolError(error));
-    if (!RejectInPlaceOutput(input, output, error))
+    std::string workingDirectory;
+    if (!ReadString(arguments, "working_directory", workingDirectory, error, false))
+        return ResultResponse(id, ToolError(error));
+    if (!RejectInPlaceOutput(input, output, workingDirectory, error))
         return ResultResponse(id, ToolError(error));
 
     const QJsonValue selectorValue = arguments.value("selector");
@@ -526,9 +599,6 @@ std::optional<QJsonObject> HandleGameObjectEdit(const QJsonObject& arguments,
         }
     }
 
-    std::string workingDirectory;
-    if (!ReadString(arguments, "working_directory", workingDirectory, error, false))
-        return ResultResponse(id, ToolError(error));
     return ResultResponse(id, ExecutionToolResult(executor(command, workingDirectory), command));
 }
 
@@ -550,8 +620,17 @@ McpDispatcher::McpDispatcher(McpCommandExecutor executor)
       }) {}
 
 std::optional<QJsonObject> McpDispatcher::Handle(const QJsonObject& request) const {
+    return Handle(request, initialized_);
+}
+
+std::optional<QJsonObject> McpDispatcher::Handle(const QJsonObject& request,
+                                                bool& initialized) const {
     const bool hasId = request.contains("id");
     const QJsonValue id = hasId ? request.value("id") : QJsonValue(QJsonValue::Null);
+    const bool validId = !hasId || id.isNull() || id.isString() || id.isDouble();
+    if (!validId)
+        return ErrorResponse(QJsonValue(QJsonValue::Null), -32600,
+                             QStringLiteral("JSON-RPC id must be a string, number, or null"));
     const bool validNotificationShape = !hasId
         && request.value("jsonrpc").toString() == QStringLiteral("2.0")
         && request.value("method").isString();
@@ -570,7 +649,7 @@ std::optional<QJsonObject> McpDispatcher::Handle(const QJsonObject& request) con
     // JSON-RPC notifications never receive a response, even if a client sends
     // the lifecycle notification out of order. It must not mark the server as
     // initialized; only a valid initialize request does that.
-    if (method == QStringLiteral("notifications/initialized") && !initialized_)
+    if (method == QStringLiteral("notifications/initialized") && !initialized)
         return std::nullopt;
 
     const QJsonObject params = request.value("params").isObject()
@@ -602,11 +681,13 @@ std::optional<QJsonObject> McpDispatcher::Handle(const QJsonObject& request) con
         result.insert("capabilities", capabilities);
         result.insert("serverInfo", serverInfo);
         result.insert("instructions", "Game-facing Project IGI asset editing only.");
-        initialized_ = true;
+        // A notification-shaped initialize is not a completed lifecycle
+        // handshake because it has no response that the client can observe.
+        if (hasId) initialized = true;
         return finish(ResultResponse(id, result));
     }
 
-    if (!initialized_)
+    if (!initialized)
         return finish(ErrorResponse(id, -32002, QStringLiteral("server is not initialized")));
 
     if (method == QStringLiteral("notifications/initialized"))
