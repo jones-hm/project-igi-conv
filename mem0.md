@@ -400,3 +400,7 @@ exit codes, recursive directory walker with mixed good/bad inputs, and
 ## Bug ID: MCP-Review-Content-Length-Overflow (2026-08-25)
 **Description:** HTTP `Content-Length` parsing used a 32-bit integer conversion, so values above `INT_MAX` were treated as malformed `400 Bad Request` instead of oversized `413 Payload Too Large` requests.
 **Resolution:** Added bounded decimal parsing that distinguishes malformed values from oversized values regardless of integer width, with an overflow regression.
+
+## Bug ID: MCP-Review-Directory-Output-Collision (2026-08-25)
+**Description:** A directory-producing MCP command could receive an output directory containing its input file, such as `iff.decompile source.iff .` or `res.unpack archive.res .`; checking only existing input directories missed this file-under-output-directory collision.
+**Resolution:** Changed the collision guard to reject normalized path overlap in either direction and added regressions for IFF decompile and RES unpack directory outputs before execution.

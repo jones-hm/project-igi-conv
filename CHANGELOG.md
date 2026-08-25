@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.11.0-rc.3] - 2026-08-25
+
+This prerelease supersedes `v1.11.0-rc.2` on `feature/mcp-support` and closes
+the remaining directory-output collision path found by the final independent
+security audit.
+
+### Fixed
+- Rejected output directories that contain an input file, covering commands
+  such as `iff.decompile source.iff .` and `res.unpack archive.res .` before
+  they can materialize files over source data.
+
+### Verification
+- Deployed GoogleTest verification: 170 tests, 161 passed, 9 explicitly
+  skipped corpus-dependent cases, 0 failures.
+- Deployed live verification from `D:\IGI1`: all 58 registered MCP operations
+  were exercised successfully (58/58, 100% operation coverage), alongside
+  four CLI-only cases. This is operation coverage, not source-code coverage.
+
 ## [1.11.0-rc.2] - 2026-08-25
 
 This prerelease supersedes `v1.11.0-rc.1` on `feature/mcp-support` and carries

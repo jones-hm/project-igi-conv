@@ -405,6 +405,33 @@ TEST(McpProtocol, RejectsInPlaceOutputForReadExporter) {
     EXPECT_FALSE(executed);
 }
 
+TEST(McpProtocol, RejectsDirectoryOutputsContainingInputs) {
+    int executions = 0;
+    igi1conv::McpDispatcher dispatcher(
+        [&](const std::vector<std::string>&, const std::string&) {
+            ++executions;
+            return igi1conv::McpExecutionResult{0, "unexpected", ""};
+        });
+    ASSERT_TRUE(Initialize(dispatcher));
+
+    const QJsonObject iffArguments{
+        {"command", "iff.decompile"},
+        {"args", QJsonArray{"source.iff", "."}},
+    };
+    const auto iffResponse = dispatcher.Handle(ToolCall(30, "igi_game_command", iffArguments));
+    ASSERT_TRUE(iffResponse.has_value());
+    EXPECT_TRUE(iffResponse->value("result").toObject().value("isError").toBool());
+
+    const QJsonObject resArguments{
+        {"command", "res.unpack"},
+        {"args", QJsonArray{"archive.res", "."}},
+    };
+    const auto resResponse = dispatcher.Handle(ToolCall(31, "igi_game_command", resArguments));
+    ASSERT_TRUE(resResponse.has_value());
+    EXPECT_TRUE(resResponse->value("result").toObject().value("isError").toBool());
+    EXPECT_EQ(executions, 0);
+}
+
 TEST(McpProtocol, RejectsDirectoryAndSecondaryInputOutputCollisions) {
     bool executed = false;
     igi1conv::McpDispatcher dispatcher(

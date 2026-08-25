@@ -19,8 +19,8 @@ An interactive workspace designed for visual inspection, navigation, and quick a
 > To use **Apply Textures** on 3D models in the GUI, you must first select the active level folder from the **Settings** menu to resolve the correct texture mappings.
 
 > [!NOTE]
-> **Latest: v1.11.0-rc.2 (August 2026) — Game-facing MCP release candidate**:
-> - **Follow-up hardening**: every MCP output-producing operation rejects an input/output collision, HTTP sessions use bounded retention with expiry, and oversized `Content-Length` values are classified as `413 Payload Too Large` even when they exceed 32-bit integer range.
+> **Latest: v1.11.0-rc.3 (August 2026) — Game-facing MCP release candidate**:
+> - **Follow-up hardening**: every MCP output-producing operation rejects an input/output collision, including an input file contained by an output directory; HTTP sessions use bounded retention with expiry, and oversized `Content-Length` values are classified as `413 Payload Too Large` even when they exceed 32-bit integer range.
 > - **Windows release bundle**: the downloadable x64 ZIP includes the Qt runtime and `vc_redist.x64.exe`; install the redistributable when the host does not already provide the MSVC runtime.
 > - **Validation scope**: the deployed live matrix covers all 58 operations registered by `tools/list` (58/58, 100% operation coverage), plus four CLI-only cases; this is operation coverage, not source-code line coverage.
 > - **Animation mode (Mode 6)**: New GUI mode that plays IFF bone animations on textured 3D MEF models. Toggle via **Settings > Animation**. Includes a Model dropdown, Animations listbox, Play button, Loop checkbox, and a configurable **FPS input textbox (1–120)**.
@@ -263,7 +263,7 @@ written:
 pwsh -File ./tests/package_mcp_release.ps1 `
   -SourceRoot D:\IGI1\mcp-tests `
   -OutputRoot D:\IGI1\tests_temp\release-rc2 `
-  -Version 1.11.0-rc.2
+  -Version 1.11.0-rc.3
 ```
 
 #### 2. Exporting 3D Meshes (`.mef`)

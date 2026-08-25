@@ -245,20 +245,24 @@ bool SamePath(const std::string& left, const std::string& right,
         == NormalizedPathForComparison(right, workingDirectory);
 }
 
-bool SameOrDescendantPath(const std::string& input, const std::string& output,
-                          const std::string& workingDirectory) {
-    if (SamePath(input, output, workingDirectory)) return true;
-    std::filesystem::path resolvedInput(input);
-    if (resolvedInput.is_relative() && !workingDirectory.empty())
-        resolvedInput = std::filesystem::path(workingDirectory) / resolvedInput;
-    std::error_code error;
-    if (!std::filesystem::is_directory(resolvedInput, error) || error)
+bool IsStrictPathPrefix(const std::string& parent, const std::string& child) {
+    if (child.size() <= parent.size()
+        || child.compare(0, parent.size(), parent) != 0)
         return false;
+    return parent.back() == '/' || child[parent.size()] == '/';
+}
+
+bool PathsOverlap(const std::string& input, const std::string& output,
+                  const std::string& workingDirectory) {
+    if (SamePath(input, output, workingDirectory)) return true;
     const std::string inputPath = NormalizedPathForComparison(input, workingDirectory);
     const std::string outputPath = NormalizedPathForComparison(output, workingDirectory);
-    return outputPath.size() > inputPath.size()
-        && outputPath.compare(0, inputPath.size(), inputPath) == 0
-        && outputPath[inputPath.size()] == '/';
+    // Reject either direction of overlap.  The output may be a directory,
+    // and several CLI commands materialize files beneath it; comparing only
+    // an existing input directory misses an input file contained by that
+    // output directory (for example `iff.decompile source.iff .`).
+    return IsStrictPathPrefix(inputPath, outputPath)
+        || IsStrictPathPrefix(outputPath, inputPath);
 }
 
 bool RejectInPlaceOutput(const std::string& input, const std::string& output,
@@ -353,7 +357,7 @@ bool RejectInPlaceCommandOutput(const GameOperation& operation,
     const auto outputs = OutputPathsForOperation(operation.name, command);
     for (const auto& input : inputs) {
         for (const auto& output : outputs) {
-            if (SameOrDescendantPath(input, output, workingDirectory)) {
+            if (PathsOverlap(input, output, workingDirectory)) {
                 error = QStringLiteral("input and output paths must differ and output must not be inside an input directory");
                 return false;
             }

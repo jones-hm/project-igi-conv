@@ -207,6 +207,10 @@ entries when its session limit is reached. The inherently in-place CLI operation
 `lightmap.recalc`, `mtp.repair`, and `mtp.sync` are intentionally not exposed
 through MCP.
 
+An output directory may not contain an input file either. This protects
+directory-producing commands such as `iff.decompile` and `res.unpack`, whose
+generated files are named beneath the requested output directory.
+
 The equivalent CLI commands are:
 
 ```text
@@ -278,7 +282,7 @@ with their Qt runtime by CMake. The tracked prerelease packaging command is:
 pwsh -File ./tests/package_mcp_release.ps1 `
   -SourceRoot D:\IGI1\mcp-tests `
   -OutputRoot D:\IGI1\tests_temp\release-rc2 `
-  -Version 1.11.0-rc.2
+  -Version 1.11.0-rc.3
 ```
 
 When `IGI1CONV_GAME_PATH` is configured, CTest also registers the live
