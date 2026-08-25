@@ -199,9 +199,11 @@ string. Commas, semicolons, newlines, malformed quotes, duplicate indexes,
 and out-of-range indexes are rejected. Nested calls, trailing comments,
 escaped strings, and untouched source formatting are preserved. Output paths
 from generic commands include `-o`, `--output`, `--out`, and `-out` forms. Any
-MCP-exposed write command whose output resolves to an input path is rejected,
-including positional and default-output forms, after resolving relative paths
-against `working_directory`. The inherently in-place CLI operations
+MCP output-producing command whose output resolves to an input path is
+rejected, including read-style exporters and positional or default-output
+forms, after resolving relative paths against `working_directory`. HTTP
+sessions expire after a bounded idle period and the server evicts the oldest
+entries when its session limit is reached. The inherently in-place CLI operations
 `lightmap.recalc`, `mtp.repair`, and `mtp.sync` are intentionally not exposed
 through MCP.
 
@@ -270,5 +272,16 @@ tool discovery and operation round-trip, independent session identifiers and
 unknown-session rejection, notification `202`, method rejection, invalid-Origin
 rejection, token rejection/acceptance on loopback, and refusal of plaintext
 remote binding. Built Windows executables require `windeployqt` and are packaged
-with their Qt runtime by CMake. When `IGI1CONV_GAME_PATH` is configured, CTest
-also registers the live CLI/MCP matrix with its explicit 100% coverage gate.
+with their Qt runtime by CMake. The tracked prerelease packaging command is:
+
+```powershell
+pwsh -File ./tests/package_mcp_release.ps1 `
+  -SourceRoot D:\IGI1\mcp-tests `
+  -OutputRoot D:\IGI1\tests_temp\release-rc2 `
+  -Version 1.11.0-rc.2
+```
+
+When `IGI1CONV_GAME_PATH` is configured, CTest also registers the live
+CLI/MCP matrix with its explicit operation-coverage gate: 58/58 registered
+MCP operations must pass. The four CLI-only cases are reported separately;
+this gate does not claim source-code line coverage.

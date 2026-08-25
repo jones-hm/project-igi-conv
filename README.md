@@ -19,7 +19,10 @@ An interactive workspace designed for visual inspection, navigation, and quick a
 > To use **Apply Textures** on 3D models in the GUI, you must first select the active level folder from the **Settings** menu to resolve the correct texture mappings.
 
 > [!NOTE]
-> **Latest: v1.11.0-rc.1 (August 2026) — Game-facing MCP release candidate**:
+> **Latest: v1.11.0-rc.2 (August 2026) — Game-facing MCP release candidate**:
+> - **Follow-up hardening**: every MCP output-producing operation rejects an input/output collision, HTTP sessions use bounded retention with expiry, and oversized `Content-Length` values are classified as `413 Payload Too Large` even when they exceed 32-bit integer range.
+> - **Windows release bundle**: the downloadable x64 ZIP includes the Qt runtime and `vc_redist.x64.exe`; install the redistributable when the host does not already provide the MSVC runtime.
+> - **Validation scope**: the deployed live matrix covers all 58 operations registered by `tools/list` (58/58, 100% operation coverage), plus four CLI-only cases; this is operation coverage, not source-code line coverage.
 > - **Animation mode (Mode 6)**: New GUI mode that plays IFF bone animations on textured 3D MEF models. Toggle via **Settings > Animation**. Includes a Model dropdown, Animations listbox, Play button, Loop checkbox, and a configurable **FPS input textbox (1–120)**.
 > - **Skeletal skinning**: The textured 3D MEF mesh is deformed each frame using the IFF bone transforms — you see the actual animated character, not skeleton dots. Press `P` to toggle rest-pose skinning for debugging; press `B` to toggle the bone skeleton overlay (now depth-test disabled so it renders on top of the model at the correct scale).
 > - **Auto-setup**: Selecting a level from **Settings > Level** auto-detects `objects.qsc`, the `common/ANIMS` folder, and the level `models/` folder, so Animation mode is one click away.
@@ -172,7 +175,9 @@ deadlines, and command output capture are bounded; the MCP lifecycle is
 session-scoped; and inherently in-place CLI operations are not exposed through
 MCP. OLM creation rejects PNG dimensions that cannot be represented by the
 game format, and `res repack` refuses unmatched directory files before writing
-an archive.
+an archive. HTTP sessions expire and are retained in a bounded cache. Every
+MCP output-producing path, including implicit/default exporter outputs, rejects
+an output path that resolves to an input path.
 
 ### MCP examples
 
@@ -248,6 +253,18 @@ and `output_paths`; a nonzero converter exit code sets `isError`.
 
 For the complete MCP contract, operation registry, JSON examples, result
 format, and excluded editor-only surfaces, see [docs/mcp.md](docs/mcp.md).
+
+To assemble the Windows prerelease bundle from a deployed Release directory,
+run the tracked packaging script. It creates the binary-only ZIP, versioned
+standalone executables, and a checksum manifest after the final archive is
+written:
+
+```powershell
+pwsh -File ./tests/package_mcp_release.ps1 `
+  -SourceRoot D:\IGI1\mcp-tests `
+  -OutputRoot D:\IGI1\tests_temp\release-rc2 `
+  -Version 1.11.0-rc.2
+```
 
 #### 2. Exporting 3D Meshes (`.mef`)
 Extract weapons, characters, or level geometry into `.obj` format.

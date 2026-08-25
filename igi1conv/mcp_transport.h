@@ -19,6 +19,10 @@ struct McpHttpOptions {
     // Test/process harnesses can request a bounded server lifetime. Zero
     // means serve until the process is terminated.
     std::size_t maxRequests = 0;
+
+    // Bound retained HTTP lifecycle state even when the server itself runs
+    // indefinitely. Expired sessions are also removed before each request.
+    std::size_t maxSessions = 256;
 };
 
 int RunMcpStdio(const McpDispatcher& dispatcher);

@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.11.0-rc.2] - 2026-08-25
+
+This prerelease supersedes `v1.11.0-rc.1` on `feature/mcp-support` and carries
+the follow-up review fixes plus the corrected Windows binary package.
+
+### Fixed
+- Rejected input/output collisions for every MCP output-producing operation,
+  including read-style exporters and implicit/default output paths.
+- Bounded HTTP session retention with expiry and oldest-session eviction so
+  repeated initialization cannot grow memory without limit.
+- Parsed `Content-Length` as a bounded decimal value so values above the
+  32-bit integer range are correctly rejected as `413 Payload Too Large`.
+
+### Release and verification
+- Added `tests/package_mcp_release.ps1`, which defines the binary-only package
+  contents, includes the Qt and MSVC runtimes, and writes SHA-256 checksums
+  after the final ZIP is created.
+- Deployed GoogleTest verification: 169 tests, 160 passed, 9 explicitly
+  skipped corpus-dependent cases, 0 failures.
+- Deployed live verification from `D:\IGI1`: all 58 registered MCP operations
+  were exercised successfully (58/58, 100% operation coverage), alongside
+  four CLI-only cases. This is operation coverage, not source-code coverage.
+
 ## [1.11.0-rc.1] - 2026-08-25
 
 This pre-release packages the game-facing MCP server and its final runtime

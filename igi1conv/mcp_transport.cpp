@@ -155,6 +155,41 @@ struct AuthFailureState {
     std::size_t failures = 0;
 };
 
+struct HttpSessionState {
+    bool initialized = false;
+    std::chrono::steady_clock::time_point lastSeen = std::chrono::steady_clock::now();
+};
+
+constexpr auto kHttpSessionTtl = std::chrono::minutes(30);
+
+void PruneExpiredSessions(std::map<QByteArray, HttpSessionState>& sessions,
+                          std::chrono::steady_clock::time_point now) {
+    for (auto it = sessions.begin(); it != sessions.end();) {
+        if (now - it->second.lastSeen > kHttpSessionTtl)
+            it = sessions.erase(it);
+        else
+            ++it;
+    }
+}
+
+void InsertHttpSession(std::map<QByteArray, HttpSessionState>& sessions,
+                       const QByteArray& sessionId, bool initialized,
+                       std::size_t maxSessions) {
+    const auto now = std::chrono::steady_clock::now();
+    PruneExpiredSessions(sessions, now);
+    const std::size_t limit = std::max<std::size_t>(1, maxSessions);
+    while (sessions.size() >= limit) {
+        const auto oldest = std::min_element(
+            sessions.begin(), sessions.end(),
+            [](const auto& left, const auto& right) {
+                return left.second.lastSeen < right.second.lastSeen;
+            });
+        if (oldest == sessions.end()) break;
+        sessions.erase(oldest);
+    }
+    sessions[sessionId] = HttpSessionState{initialized, now};
+}
+
 bool AuthenticateRequest(const QByteArray& authorization, const QByteArray& tokenHeader,
                          const McpHttpOptions& options, const QByteArray& peer,
                          std::map<QByteArray, AuthFailureState>& failures,
@@ -311,16 +346,33 @@ bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error,
         headers.insert(line.left(separator).trimmed().toLower(), line.mid(separator + 1).trimmed());
     }
 
-    bool ok = false;
     const QByteArray contentLengthHeader = HeaderValue(headers, "content-length");
     const bool bodylessRequest = (requestLine.at(0) == "GET" || requestLine.at(0) == "OPTIONS")
         && contentLengthHeader.isEmpty();
-    const int contentLength = bodylessRequest ? 0 : contentLengthHeader.toInt(&ok);
-    if (!bodylessRequest && (!ok || contentLength < 0)) {
+    qint64 contentLength = 0;
+    bool contentLengthValid = true;
+    bool contentLengthTooLarge = false;
+    for (const char rawDigit : contentLengthHeader) {
+        const unsigned char digit = static_cast<unsigned char>(rawDigit);
+        if (digit < static_cast<unsigned char>('0')
+            || digit > static_cast<unsigned char>('9')) {
+            contentLengthValid = false;
+            continue;
+        }
+        const qint64 value = static_cast<qint64>(digit - static_cast<unsigned char>('0'));
+        if (!contentLengthTooLarge
+            && contentLength > (static_cast<qint64>(kMaxMessageBytes) - value) / 10) {
+            contentLengthTooLarge = true;
+        } else if (!contentLengthTooLarge) {
+            contentLength = contentLength * 10 + value;
+        }
+    }
+    if (!bodylessRequest && (!contentLengthValid || contentLengthHeader.isEmpty())) {
         error = QStringLiteral("missing or invalid Content-Length");
         return false;
     }
-    if (!bodylessRequest && contentLength > static_cast<int>(kMaxMessageBytes)) {
+    if (!bodylessRequest && (contentLengthTooLarge
+                             || contentLength > static_cast<qint64>(kMaxMessageBytes))) {
         error = QStringLiteral("HTTP request body is too large");
         errorStatus = 413;
         return false;
@@ -337,7 +389,7 @@ bool ReadHttpRequest(QTcpSocket& socket, QByteArray& request, QString& error,
 
 void HandleHttpConnection(QTcpSocket& socket, const McpDispatcher& dispatcher,
                           const McpHttpOptions& options, const QHostAddress& bindAddress,
-                          quint16 actualPort, QMap<QByteArray, bool>& sessions,
+                          quint16 actualPort, std::map<QByteArray, HttpSessionState>& sessions,
                           std::mutex& sessionsMutex,
                           std::map<QByteArray, AuthFailureState>& authFailures,
                           std::mutex& authFailuresMutex) {
@@ -435,9 +487,14 @@ void HandleHttpConnection(QTcpSocket& socket, const McpDispatcher& dispatcher,
                     bool knownSession = sessionId.isEmpty();
                     {
                         std::lock_guard lock(sessionsMutex);
+                        PruneExpiredSessions(sessions, std::chrono::steady_clock::now());
                         if (!sessionId.isEmpty()) {
-                            knownSession = sessions.contains(sessionId);
-                            if (knownSession) initialized = sessions.value(sessionId);
+                            const auto session = sessions.find(sessionId);
+                            knownSession = session != sessions.end();
+                            if (knownSession) {
+                                initialized = session->second.initialized;
+                                session->second.lastSeen = std::chrono::steady_clock::now();
+                            }
                         }
                     }
                     if (!knownSession) {
@@ -449,14 +506,20 @@ void HandleHttpConnection(QTcpSocket& socket, const McpDispatcher& dispatcher,
                         QByteArray responseSessionId = sessionId;
                         {
                             std::lock_guard lock(sessionsMutex);
+                            PruneExpiredSessions(sessions, std::chrono::steady_clock::now());
                             response = dispatcher.Handle(requestObject, initialized);
                             if (isInitialize && response.has_value()
                                 && response->value("result").isObject()) {
                                 responseSessionId = QByteArray("igi1conv-")
                                     + QByteArray::number(QRandomGenerator::global()->generate64(), 16);
-                                sessions.insert(responseSessionId, initialized);
+                                InsertHttpSession(sessions, responseSessionId, initialized,
+                                                  options.maxSessions);
                             } else if (!sessionId.isEmpty()) {
-                                sessions[sessionId] = initialized;
+                                const auto session = sessions.find(sessionId);
+                                if (session != sessions.end()) {
+                                    session->second.initialized = initialized;
+                                    session->second.lastSeen = std::chrono::steady_clock::now();
+                                }
                             }
                         }
                         if (response.has_value()) {
@@ -540,7 +603,7 @@ int RunMcpHttp(const McpDispatcher& dispatcher, const McpHttpOptions& options) {
               << ':' << server.serverPort() << options.endpoint << "\n";
 
     std::size_t handled = 0;
-    QMap<QByteArray, bool> sessions;
+    std::map<QByteArray, HttpSessionState> sessions;
     std::mutex sessionsMutex;
     std::map<QByteArray, AuthFailureState> authFailures;
     std::mutex authFailuresMutex;

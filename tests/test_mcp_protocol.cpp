@@ -376,6 +376,35 @@ TEST(McpProtocol, RejectsPositionalAndDefaultInPlaceGameOutputs) {
     EXPECT_EQ(executions, 0);
 }
 
+TEST(McpProtocol, RejectsInPlaceOutputForReadExporter) {
+    bool executed = false;
+    igi1conv::McpDispatcher dispatcher(
+        [&](const std::vector<std::string>&, const std::string&) {
+            executed = true;
+            return igi1conv::McpExecutionResult{0, "unexpected", ""};
+        });
+    ASSERT_TRUE(Initialize(dispatcher));
+
+    const QJsonObject arguments{
+        {"command", "tex.to-png"},
+        {"args", QJsonArray{"input.tex", "-o", "input.tex"}},
+    };
+    const auto response = dispatcher.Handle(ToolCall(28, "igi_game_command", arguments));
+    ASSERT_TRUE(response.has_value());
+    EXPECT_TRUE(response->value("result").toObject().value("isError").toBool());
+    EXPECT_FALSE(executed);
+
+    const QJsonObject implicitArguments{
+        {"command", "tex.to-png"},
+        {"args", QJsonArray{"input.png"}},
+    };
+    const auto implicitResponse = dispatcher.Handle(
+        ToolCall(29, "igi_game_command", implicitArguments));
+    ASSERT_TRUE(implicitResponse.has_value());
+    EXPECT_TRUE(implicitResponse->value("result").toObject().value("isError").toBool());
+    EXPECT_FALSE(executed);
+}
+
 TEST(McpProtocol, RejectsDirectoryAndSecondaryInputOutputCollisions) {
     bool executed = false;
     igi1conv::McpDispatcher dispatcher(

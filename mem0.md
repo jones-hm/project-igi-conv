@@ -388,3 +388,15 @@ exit codes, recursive directory walker with mixed good/bad inputs, and
 **Description:** The live CLI/MCP matrix and smoke harness wrote generated files through the system temporary directory. On the test machine, that volume had no usable space, causing false output-validation failures and preventing all live testing from remaining under `D:\IGI1`.
 
 **Resolution:** Added explicit `-ArtifactRoot` parameters to both harnesses, resolved them to ordinary filesystem paths, and ran the final deployed tests with their artifacts rooted under `D:\IGI1\tests_temp`. The matrix now records per-operation results and independently verifies that all 58 operations returned by `tools/list` are covered.
+
+## Bug ID: MCP-Review-Exporter-Output-Collision (2026-08-25)
+**Description:** The MCP collision guard skipped commands marked as non-game-writing, allowing read-style exporters such as `tex.to-png` to overwrite their input when an explicit or implicit output resolved to the same path.
+**Resolution:** Applied collision checks to every MCP output-producing operation, added implicit output derivation for exporter and info commands, and added regressions for explicit and default output collisions.
+
+## Bug ID: MCP-Review-Http-Session-Retention (2026-08-25)
+**Description:** HTTP session identifiers were retained indefinitely, allowing repeated initialization to grow the in-memory session map without a bound.
+**Resolution:** Added idle expiry, a configurable maximum session count with oldest-entry eviction, last-use refresh, and a regression that verifies the oldest session is rejected after the bound is exceeded.
+
+## Bug ID: MCP-Review-Content-Length-Overflow (2026-08-25)
+**Description:** HTTP `Content-Length` parsing used a 32-bit integer conversion, so values above `INT_MAX` were treated as malformed `400 Bad Request` instead of oversized `413 Payload Too Large` requests.
+**Resolution:** Added bounded decimal parsing that distinguishes malformed values from oversized values regardless of integer width, with an overflow regression.

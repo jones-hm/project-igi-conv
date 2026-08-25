@@ -83,5 +83,6 @@ build32/
 
 # Manual test artifacts
 tests_temp/
+CoverageReport-*/
 test_tone.wav
 *.wav

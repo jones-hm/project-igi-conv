@@ -305,7 +305,8 @@ std::vector<std::string> OutputPathsForOperation(const std::string& operationNam
 
     // These commands use a positional destination rather than -o.
     if ((operationName == "iff.convert" || operationName == "iff.create"
-         || operationName == "iff.emit-qsc" || operationName == "iff.rebuild"
+         || operationName == "iff.decompile" || operationName == "iff.emit-qsc"
+         || operationName == "iff.rebuild"
          || operationName == "res.pack" || operationName == "res.unpack")
         && command.size() >= 4)
         return {command[3]};
@@ -324,14 +325,30 @@ std::vector<std::string> OutputPathsForOperation(const std::string& operationNam
         derived.replace_extension(operationName == "dat.to-mtp" ? ".mtp" : ".dat");
         return {derived.string()};
     }
+
+    if (operationName == "tex.to-png" || operationName == "tex.to-tga"
+        || operationName == "tex.to-spr" || operationName == "olm.to-png"
+        || operationName == "olm.to-tga") {
+        if (command.size() >= 3) {
+            std::filesystem::path derived(command[2]);
+            const std::string extension =
+                operationName == "tex.to-tga" || operationName == "olm.to-tga"
+                ? ".tga" : operationName == "tex.to-spr" ? ".spr" : ".png";
+            derived.replace_extension(extension);
+            return {derived.string()};
+        }
+    }
+
+    if (operationName == "iff.info" && command.size() >= 3)
+        return {command[2] + ".info.txt"};
+
     return {};
 }
 
 bool RejectInPlaceCommandOutput(const GameOperation& operation,
                                 const std::vector<std::string>& command,
                                 const std::string& workingDirectory,
-                                bool writesGame, QString& error) {
-    if (!writesGame) return true;
+                                QString& error) {
     const auto inputs = InputPathsForOperation(operation, command);
     const auto outputs = OutputPathsForOperation(operation.name, command);
     for (const auto& input : inputs) {
@@ -484,8 +501,7 @@ std::optional<QJsonObject> HandleGameCommand(const QJsonObject& arguments,
     std::string workingDirectory;
     if (!ReadString(arguments, "working_directory", workingDirectory, error, false))
         return ResultResponse(id, ToolError(error));
-    if (!RejectInPlaceCommandOutput(*operation, command, workingDirectory,
-                                    operation->writesGame, error))
+    if (!RejectInPlaceCommandOutput(*operation, command, workingDirectory, error))
         return ResultResponse(id, ToolError(error));
     return ResultResponse(id, ExecutionToolResult(executor(command, workingDirectory), command));
 }
