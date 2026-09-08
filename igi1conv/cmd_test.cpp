@@ -9,8 +9,39 @@
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#elif !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
+
+static std::string current_executable_path()
+{
+#ifdef _WIN32
+    char* pgmptr = nullptr;
+    _get_pgmptr(&pgmptr);
+    return pgmptr ? pgmptr : "igi1conv";
+#elif defined(__APPLE__)
+    uint32_t size = 1024;
+    std::vector<char> buffer(size);
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
+        buffer.resize(size);
+    }
+    if (_NSGetExecutablePath(buffer.data(), &size) == 0)
+        return fs::weakly_canonical(buffer.data()).string();
+    return "igi1conv";
+#else
+    std::vector<char> buffer(4096);
+    const ssize_t length = readlink("/proc/self/exe", buffer.data(), buffer.size() - 1);
+    if (length > 0) {
+        buffer[static_cast<size_t>(length)] = '\0';
+        return buffer.data();
+    }
+    return "igi1conv";
+#endif
+}
 
 static bool run_test_cmd(const std::string& cmd_line) {
     std::cout << "  Running: " << cmd_line << "\n";
@@ -142,9 +173,7 @@ int cmd_test(int argc, char** argv)
         }
     }
 
-    char* pgmptr = nullptr;
-    _get_pgmptr(&pgmptr);
-    std::string exe_path = pgmptr ? pgmptr : "igi1conv";
+    std::string exe_path = current_executable_path();
     exe_path = "\"" + exe_path + "\""; // quote executable path
 
     int success_count = 0;

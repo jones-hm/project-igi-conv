@@ -356,7 +356,7 @@ TEST_F(IGI1ConvTest, WavConvertDirMixed) {
     std::filesystem::create_directory(tmp / "sub");
     {
         std::string sub = tmp / "sub";
-        write_bytes(sub + "\\nested.wav",
+        write_bytes((std::filesystem::path(sub) / "nested.wav").string(),
                     make_ilsf({0,16,1,0,22050,(uint32_t)s1.size()}, s1));
     }
 
@@ -366,13 +366,13 @@ TEST_F(IGI1ConvTest, WavConvertDirMixed) {
                         "batch to still exit 0; got " << rc;
 
     // All 4 decodable files (good_raw, good_rr, adpcm, sub/nested) must appear.
-    EXPECT_TRUE(NonEmptyFile(outDir + "\\good_raw.wav"));
-    EXPECT_TRUE(NonEmptyFile(outDir + "\\good_rr.wav"));
-    EXPECT_TRUE(NonEmptyFile(outDir + "\\adpcm.wav"));
-    EXPECT_TRUE(NonEmptyFile(outDir + "\\sub\\nested.wav"));
+    EXPECT_TRUE(NonEmptyFile((std::filesystem::path(outDir) / "good_raw.wav").string()));
+    EXPECT_TRUE(NonEmptyFile((std::filesystem::path(outDir) / "good_rr.wav").string()));
+    EXPECT_TRUE(NonEmptyFile((std::filesystem::path(outDir) / "adpcm.wav").string()));
+    EXPECT_TRUE(NonEmptyFile((std::filesystem::path(outDir) / "sub" / "nested.wav").string()));
     // No undecodable output.
-    EXPECT_FALSE(NonEmptyFile(outDir + "\\junk1.wav"));
-    EXPECT_FALSE(NonEmptyFile(outDir + "\\junk2.wav"));
+    EXPECT_FALSE(NonEmptyFile((std::filesystem::path(outDir) / "junk1.wav").string()));
+    EXPECT_FALSE(NonEmptyFile((std::filesystem::path(outDir) / "junk2.wav").string()));
 }
 
 TEST_F(IGI1ConvTest, WavConvertAutoExtFromDir) {
@@ -385,7 +385,7 @@ TEST_F(IGI1ConvTest, WavConvertAutoExtFromDir) {
     std::string outDir = tmp / "outdir";
     std::filesystem::create_directory(outDir);
     ASSERT_EQ(RunIGI1Conv("wav convert " + Q(tmp / "clip.wav") + " -o " + Q(outDir)), 0);
-    EXPECT_TRUE(NonEmptyFile(outDir + "\\clip.wav"));
+    EXPECT_TRUE(NonEmptyFile((std::filesystem::path(outDir) / "clip.wav").string()));
 }
 
 // ─── convert → .mp3 is no longer supported ────────────────────────────────
@@ -431,8 +431,8 @@ TEST_F(IGI1ConvTest, WavConvertDirHonoursNoRecursive) {
     ASSERT_EQ(RunIGI1Conv("wav convert-dir " + Q(tmp.str()) +
                               " -o " + Q(outDir) + " --no-recursive"),
               0);
-    EXPECT_TRUE(NonEmptyFile(outDir + "\\top.wav"));
-    EXPECT_FALSE(NonEmptyFile(outDir + "\\sub\\nested.wav"));
+    EXPECT_TRUE(NonEmptyFile((std::filesystem::path(outDir) / "top.wav").string()));
+    EXPECT_FALSE(NonEmptyFile((std::filesystem::path(outDir) / "sub" / "nested.wav").string()));
 }
 
 // `wav convert-dir` on a directory with no *.wav files must
@@ -475,7 +475,7 @@ TEST_F(IGI1ConvTest, WavConvertAutoDerivesWavInDir) {
     EXPECT_EQ(RunIGI1Conv("wav convert " + Q(tmp.str() + std::string("/synth_sine.wav")) +
                               " -o " + Q(outDir)),
               0);
-    EXPECT_TRUE(NonEmptyFile(outDir + "\\synth_sine.wav"));
+    EXPECT_TRUE(NonEmptyFile((std::filesystem::path(outDir) / "synth_sine.wav").string()));
 }
 
 // `wav convert` with an unsupported output extension (anything

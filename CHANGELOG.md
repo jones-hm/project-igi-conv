@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.1] - 2026-09-09
+
+### Added
+- Native macOS CLI build support through `-DIGI1CONV_BUILD_GUI=OFF` (the default on non-Windows hosts).
+
+### Fixed
+- Replaced Windows-only process and executable path lookups with portable macOS/Linux implementations.
+- Excluded the Windows multimedia GUI from CLI-only builds while preserving the existing Windows GUI default.
+- Made the process-level test harness portable across Windows and macOS, including native paths, timeouts, and SHA-256 checks.
+
 ## [1.10.0] - 2026-06-24
 
 ### Added

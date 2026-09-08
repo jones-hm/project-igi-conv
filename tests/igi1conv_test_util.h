@@ -18,11 +18,24 @@
 #include <regex>
 #include <random>
 #include <algorithm>
+#include <chrono>
+#include <thread>
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 #include <wincrypt.h>
+#else
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#ifdef __APPLE__
+#include <CommonCrypto/CommonDigest.h>
+#include <mach-o/dyld.h>
+#endif
+#endif
 
 namespace igi1conv_test {
 
@@ -35,14 +48,32 @@ inline void SetGamePath(const std::string& p) { g_game_path = p; }
 
 // Directory of the running test executable (igi1conv.exe lives alongside it).
 inline std::string ExeDir() {
+#ifdef _WIN32
     char buf[MAX_PATH] = {};
     GetModuleFileNameA(nullptr, buf, MAX_PATH);
     std::filesystem::path p(buf);
+#elif defined(__APPLE__)
+    uint32_t size = 1024;
+    std::vector<char> buf(size);
+    if (_NSGetExecutablePath(buf.data(), &size) != 0) buf.resize(size);
+    if (_NSGetExecutablePath(buf.data(), &size) != 0) return ".";
+    std::filesystem::path p = std::filesystem::weakly_canonical(buf.data());
+#else
+    std::vector<char> buf(4096);
+    const ssize_t length = readlink("/proc/self/exe", buf.data(), buf.size() - 1);
+    if (length <= 0) return ".";
+    buf[static_cast<size_t>(length)] = '\0';
+    std::filesystem::path p(buf.data());
+#endif
     return p.parent_path().string();
 }
 
 inline std::string IGI1ConvExe() {
-    return ExeDir() + "\\igi1conv.exe";
+#ifdef _WIN32
+    return (std::filesystem::path(ExeDir()) / "igi1conv.exe").string();
+#else
+    return (std::filesystem::path(ExeDir()) / "igi1conv").string();
+#endif
 }
 
 // Root of the test corpus.  Returns "" if no path was provided - in
@@ -51,6 +82,7 @@ inline const std::string& CorpusDir() {
     // Lazy: pull env var on first call (before the g_game_path override
     // is set, e.g. when IGI1CONV_NEED is evaluated in a static init).
     static const std::string s_envPath = []() -> std::string {
+#ifdef _WIN32
         char* env = nullptr;
         size_t len = 0;
         if (_dupenv_s(&env, &len, "IGI_GAME_PATH") == 0 && env) {
@@ -58,13 +90,16 @@ inline const std::string& CorpusDir() {
             free(env);
             return v;
         }
+#else
+        if (const char* env = std::getenv("IGI_GAME_PATH")) return env;
+#endif
         return std::string();
     }();
     return g_game_path.empty() ? s_envPath : g_game_path;
 }
 
 inline std::string Corpus(const std::string& rel) {
-    return CorpusDir() + "\\" + rel;
+    return (std::filesystem::path(CorpusDir()) / rel).string();
 }
 
 // Temp directory scoped to a single test, auto-removed on destruction.
@@ -75,7 +110,13 @@ public:
         std::filesystem::create_directories(workspace_temp);
         static unsigned counter = 0;
         path_ = (workspace_temp / ("igi1conv_test_" +
-                std::to_string(GetCurrentProcessId()) + "_" +
+                std::to_string(
+#ifdef _WIN32
+                    GetCurrentProcessId()
+#else
+                    getpid()
+#endif
+                ) + "_" +
                 std::to_string(++counter))).string();
         std::filesystem::create_directories(path_);
     }
@@ -83,7 +124,9 @@ public:
         std::error_code ec;
         std::filesystem::remove_all(path_, ec);
     }
-    std::string operator/(const std::string& name) const { return path_ + "\\" + name; }
+    std::string operator/(const std::string& name) const {
+        return (std::filesystem::path(path_) / name).string();
+    }
     const std::string& str() const { return path_; }
 private:
     std::string path_;
@@ -93,10 +136,11 @@ private:
 // If captureOut is non-null, the child's stdout+stderr are written there.
 // Returns the process exit code, or -1 if the process could not be started.
 inline int RunIGI1Conv(const std::string& args, std::string* captureOut = nullptr,
-                    DWORD timeoutMs = 30000) {
+                    uint32_t timeoutMs = 30000) {
     const std::string exePath = IGI1ConvExe();
     std::string cmdLine = "\"" + exePath + "\" " + args;
 
+#ifdef _WIN32
     SECURITY_ATTRIBUTES sa = { sizeof(sa), nullptr, TRUE };
 
     // Redirect child output to a temp file (file, not pipe, to avoid the
@@ -153,6 +197,49 @@ inline int RunIGI1Conv(const std::string& args, std::string* captureOut = nullpt
         DeleteFileA(outFile.c_str());
     }
     return static_cast<int>(code);
+#else
+    std::filesystem::path workspace_temp = std::filesystem::current_path() / "tests_temp";
+    std::filesystem::create_directories(workspace_temp);
+    static unsigned file_counter = 0;
+    const std::string outFile = (workspace_temp / (
+        "gcv_out_" + std::to_string(getpid()) + "_" +
+        std::to_string(++file_counter) + ".tmp")).string();
+
+    const pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        const int output = open(captureOut ? outFile.c_str() : "/dev/null",
+            O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (output < 0) _exit(127);
+        dup2(output, STDOUT_FILENO);
+        dup2(output, STDERR_FILENO);
+        close(output);
+        execl("/bin/sh", "sh", "-c", cmdLine.c_str(), static_cast<char*>(nullptr));
+        _exit(127);
+    }
+
+    int status = 0;
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(timeoutMs);
+    while (waitpid(pid, &status, WNOHANG) == 0) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            status = 1 << 8;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    if (captureOut) {
+        std::ifstream f(outFile, std::ios::binary);
+        captureOut->assign(std::istreambuf_iterator<char>(f),
+                           std::istreambuf_iterator<char>());
+    }
+    std::error_code ec;
+    std::filesystem::remove(outFile, ec);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+#endif
 }
 
 inline std::string Q(const std::string& s) { return "\"" + s + "\""; }
@@ -274,6 +361,7 @@ inline std::string GetFileSHA256(const std::string& filepath) {
     std::ifstream f(filepath, std::ios::binary);
     if (!f.is_open()) return "";
     
+#ifdef _WIN32
     HCRYPTPROV hProv = 0;
     HCRYPTHASH hHash = 0;
     
@@ -310,6 +398,24 @@ inline std::string GetFileSHA256(const std::string& filepath) {
     CryptDestroyHash(hHash);
     CryptReleaseContext(hProv, 0);
     return result;
+#elif defined(__APPLE__)
+    CC_SHA256_CTX context;
+    CC_SHA256_Init(&context);
+    char buffer[8192];
+    while (f.good()) {
+        f.read(buffer, sizeof(buffer));
+        const std::streamsize bytes = f.gcount();
+        if (bytes > 0) CC_SHA256_Update(&context, buffer, static_cast<CC_LONG>(bytes));
+    }
+    unsigned char hash[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256_Final(hash, &context);
+    char hex[CC_SHA256_DIGEST_LENGTH * 2 + 1] = {};
+    for (size_t i = 0; i < CC_SHA256_DIGEST_LENGTH; ++i)
+        snprintf(hex + (i * 2), 3, "%02x", hash[i]);
+    return hex;
+#else
+    return "";
+#endif
 }
 
 // Find a set of count random files in the corpus matching the given regex pattern
@@ -383,4 +489,3 @@ protected:
     if (var.empty())                                                    \
         GTEST_SKIP() << "corpus file missing for regex: " << pattern    \
                      << " (set IGI_GAME_PATH)"
-

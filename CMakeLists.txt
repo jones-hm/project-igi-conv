@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(igi1conv
-  VERSION 1.10.0
+  VERSION 1.10.1
   DESCRIPTION "Project IGI 1 Game Convertor"
   LANGUAGES CXX C)
 
@@ -25,18 +25,41 @@ if (MSVC)
     add_compile_options("/FS")
 endif()
 
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
+if (WIN32)
+    set(IGI1CONV_BUILD_GUI_DEFAULT ON)
+else()
+    set(IGI1CONV_BUILD_GUI_DEFAULT OFF)
+endif()
+option(IGI1CONV_BUILD_GUI "Build the Qt desktop GUI" ${IGI1CONV_BUILD_GUI_DEFAULT})
 
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-set(CMAKE_AUTOUIC ON)
+if (IGI1CONV_BUILD_GUI AND NOT WIN32)
+    message(FATAL_ERROR "The igi1conv GUI currently supports Windows only; configure with -DIGI1CONV_BUILD_GUI=OFF")
+endif()
+
+if (IGI1CONV_BUILD_GUI)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
+else()
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+endif()
+
+if (IGI1CONV_BUILD_GUI)
+    set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTORCC ON)
+    set(CMAKE_AUTOUIC ON)
+endif()
 
 # ─── shared engine subset (parsers + headers reused from the IGI editor) ──────
 file(GLOB SOURCES_PARSERS "source/parsers/*.cpp" "source/parsers/*.h")
 
 # ─── igi1conv CLI ───────────────────────────────────────────────────────────────
 file(GLOB IGI1CONV_SOURCES "igi1conv/*.cpp" "igi1conv/*.h")
-if (WIN32)
+if (NOT IGI1CONV_BUILD_GUI)
+    list(REMOVE_ITEM IGI1CONV_SOURCES
+        "${PROJECT_SOURCE_DIR}/igi1conv/gui_main.cpp"
+        "${PROJECT_SOURCE_DIR}/igi1conv/gui_main.h"
+    )
+endif()
+if (WIN32 AND IGI1CONV_BUILD_GUI)
     list(APPEND IGI1CONV_SOURCES "assets/igi1conv.rc")
     list(APPEND IGI1CONV_SOURCES "assets/resources.qrc")
 endif()
@@ -46,7 +69,11 @@ add_executable(igi1conv ${IGI1CONV_SOURCES} ${SOURCES_PARSERS})
 set_target_properties(igi1conv PROPERTIES
     OUTPUT_NAME "igi1conv"
 )
-if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+if (NOT IGI1CONV_BUILD_GUI)
+    set_target_properties(igi1conv PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
+elseif (CMAKE_SIZEOF_VOID_P EQUAL 4)
     set_target_properties(igi1conv PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${PROJECT_SOURCE_DIR}/bin/Release32"
         RUNTIME_OUTPUT_DIRECTORY_DEBUG   "${PROJECT_SOURCE_DIR}/bin/Debug32"
@@ -59,12 +86,12 @@ else()
 endif()
 
 # --- GUI Dependencies (Qt5/Qt6) ---
-if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+if (IGI1CONV_BUILD_GUI AND CMAKE_SIZEOF_VOID_P EQUAL 4)
     message("Configuring 32-bit (Win32) build using local Qt 5.15.2")
     set(CMAKE_PREFIX_PATH "${PROJECT_SOURCE_DIR}/5.15.2/msvc2019")
     find_package(Qt5 COMPONENTS Core Gui Widgets OpenGL REQUIRED)
     target_link_libraries(igi1conv PRIVATE Qt5::Core Qt5::Gui Qt5::Widgets Qt5::OpenGL)
-else()
+elseif (IGI1CONV_BUILD_GUI)
     message("Configuring 64-bit (x64) build using system Qt 6.5.3")
     set(CMAKE_PREFIX_PATH "D:/Qt/6.5.3/msvc2019_64")
     find_package(Qt6 COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets REQUIRED)
@@ -74,6 +101,9 @@ endif()
 
 # Single source of truth for the version string (also stamped in assets/igi1conv.rc).
 target_compile_definitions(igi1conv PRIVATE IGI1CONV_VERSION="${PROJECT_VERSION}")
+if (IGI1CONV_BUILD_GUI)
+    target_compile_definitions(igi1conv PRIVATE IGI1CONV_WITH_GUI=1)
+endif()
 
 target_include_directories(igi1conv PRIVATE
     ${PROJECT_SOURCE_DIR}/igi1conv          # igi1conv/pch.h, cmd_*.h
@@ -121,6 +151,12 @@ if (IGI1CONV_BUILD_TESTS)
     file(GLOB IGI1CONV_TEST_SOURCES "tests/*.cpp")
     add_executable(igi1conv_tests ${IGI1CONV_TEST_SOURCES})
 
+    if (NOT IGI1CONV_BUILD_GUI)
+        set_target_properties(igi1conv_tests PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        )
+    endif()
+
     add_dependencies(igi1conv_tests igi1conv)
 
     if (MSVC)
@@ -129,7 +165,9 @@ if (IGI1CONV_BUILD_TESTS)
         )
     endif()
 
-    if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+    if (NOT IGI1CONV_BUILD_GUI)
+        # Keep the test runner beside the CLI so process-level tests can find it.
+    elseif (CMAKE_SIZEOF_VOID_P EQUAL 4)
         set_target_properties(igi1conv_tests PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY_RELEASE "${PROJECT_SOURCE_DIR}/bin/Release32"
             RUNTIME_OUTPUT_DIRECTORY_DEBUG   "${PROJECT_SOURCE_DIR}/bin/Debug32"

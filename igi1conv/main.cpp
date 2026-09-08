@@ -51,7 +51,9 @@ static void print_help()
         "Run 'igi1conv <command> --help' for command-specific help.\n";
 }
 
+#ifdef IGI1CONV_WITH_GUI
 #include "gui_main.h"
+#endif
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -60,8 +62,9 @@ static void print_help()
 
 int main(int argc, char** argv)
 {
-    if (argc < 2 || (argc == 2 && std::string(argv[1]) == "--gui"))
+    if (argc < 2)
     {
+#ifdef IGI1CONV_WITH_GUI
 #ifdef _WIN32
         HWND consoleWnd = GetConsoleWindow();
         if (consoleWnd) {
@@ -69,6 +72,20 @@ int main(int argc, char** argv)
         }
 #endif
         return run_gui();
+#else
+        print_help();
+        return 1;
+#endif
+    }
+
+    if (argc == 2 && std::string(argv[1]) == "--gui")
+    {
+#ifdef IGI1CONV_WITH_GUI
+        return run_gui();
+#else
+        std::cerr << "igi1conv: this build does not include the GUI\n";
+        return 1;
+#endif
     }
 
     std::string cmd = argv[1];

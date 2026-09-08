@@ -9,6 +9,8 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 #include "../source/parsers/iff_parser.h"
 #include "../source/parsers/iff_to_bef.h"
@@ -17,6 +19,15 @@
 #include "../source/parsers/iff_bef.h"
 
 namespace fs = std::filesystem;
+
+static unsigned long current_process_id()
+{
+#ifdef _WIN32
+    return static_cast<unsigned long>(::GetCurrentProcessId());
+#else
+    return static_cast<unsigned long>(::getpid());
+#endif
+}
 
 static int iff_info(int argc, char** argv);
 static int iff_test(int argc, char** argv);
@@ -198,7 +209,7 @@ static int create_from_bef_dir(const std::string& srcDir, const std::string& out
     fs::path scratch = fs::temp_directory_path() /
         ("igi1conv_iff_create_" +
          std::to_string(std::rand()) + "_" +
-         std::to_string(::GetCurrentProcessId()));
+         std::to_string(current_process_id()));
     fs::remove_all(scratch);
     fs::create_directories(scratch);
     // Write a _skeleton.BEF first so the writer can pick up the bones
@@ -269,7 +280,7 @@ static int iff_rebuild(int argc, char** argv) {
     fs::path tmp = fs::temp_directory_path() /
                    ("igi1conv_iff_rebuild_" +
                     std::to_string(std::rand()) + "_" +
-                    std::to_string(::GetCurrentProcessId()));
+                    std::to_string(current_process_id()));
     fs::remove_all(tmp);
     fs::create_directories(tmp);
 

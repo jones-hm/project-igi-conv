@@ -104,6 +104,21 @@ For the full version history see [**CHANGELOG.md**](./CHANGELOG.md).
 
 A lightweight, high-performance command-line utility optimized for scripting, automated builds, and batch tasks:
 
+### macOS CLI build
+
+The native CLI build does not require Qt at runtime:
+
+```bash
+cmake -S . -B build-macos-cli \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DIGI1CONV_BUILD_GUI=OFF \
+  -DIGI1CONV_BUILD_TESTS=OFF
+cmake --build build-macos-cli --target igi1conv --parallel
+./build-macos-cli/bin/igi1conv --version
+```
+
+The GUI remains enabled by default on Windows and is currently Windows-only.
+
 *   **Asset Extraction**: Unpack and pack `.res` archives.
 *   **Mesh Conversion**: Export proprietary `.mef` models directly to standard `.obj` files.
 *   **Texture Conversion**: Convert images to and from `.tex`, `.spr`, and `.pic` formats (with resizing).

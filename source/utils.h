@@ -5,7 +5,9 @@
 
 #pragma once
 
+#ifdef _WIN32
 #include <windows.h>
+#endif
 #include <string>
 #include <optional>
 #include <vector>
@@ -57,12 +59,14 @@ bool ModifiersExactMatch(const KeyBinding& kb, bool ctrlDown, bool shiftDown, bo
 bool IsKeyBindingPressedExact(const KeyBinding& kb);
 
 // Process and window utilities (Windows API)
+#ifdef _WIN32
 HANDLE FindProcess(const std::string& processName);
 HWND FindWindow(const std::string& windowName);
 DWORD GetProcessId();
 HANDLE GetProcessHandle4mHWND(HWND hwnd);
 DWORD GetProcessID4mHWND(HWND hwnd);
 DWORD GetProcessBaseAddress();
+#endif
 
 // File and path utilities
 std::string GetExeDirectory();
@@ -84,4 +88,3 @@ std::string GetIGIRootPath();
 std::string GetIGIModelsPath(int level_no);
 
 } // namespace Utils
-
